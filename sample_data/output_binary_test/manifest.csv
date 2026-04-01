@@ -1,0 +1,2 @@
+run_index,rock_index,rock_path,start_index,start_x,start_y,start_dz,orientation_index,case_name,status,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples
+1,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,1,"Real_Equant_1_4_2_0m3_r001_s0001_o0001",COMPLETED,"binary-sharded","trajectories_001.rfbin",192,0.0863098,251

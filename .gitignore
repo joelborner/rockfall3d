@@ -1,0 +1,12 @@
+.vs/
+x64/
+*.user
+*.VC.db
+*.VC.opendb
+*.suo
+*.ipch
+*.obj
+*.pdb
+*.ilk
+*.tlog
+*.log

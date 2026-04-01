@@ -1,0 +1,11 @@
+run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,trajectory_file,sim_seconds,trajectory_samples
+1,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,1,"Real_Equant_1_4_2_0m3_r001_s0001_o0001.txt",0.294147,10800
+2,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,2,"Real_Equant_1_4_2_0m3_r001_s0001_o0002.txt",0.234029,10799
+3,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,3,"Real_Equant_1_4_2_0m3_r001_s0001_o0003.txt",0.271994,10875
+4,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,4,"Real_Equant_1_4_2_0m3_r001_s0001_o0004.txt",0.270894,10860
+5,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,5,"Real_Equant_1_4_2_0m3_r001_s0001_o0005.txt",0.240048,10913
+6,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,6,"Real_Equant_1_4_2_0m3_r001_s0001_o0006.txt",0.276187,10849
+7,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,7,"Real_Equant_1_4_2_0m3_r001_s0001_o0007.txt",0.252107,10799
+8,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,8,"Real_Equant_1_4_2_0m3_r001_s0001_o0008.txt",0.277633,10832
+9,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,9,"Real_Equant_1_4_2_0m3_r001_s0001_o0009.txt",0.320285,10799
+10,1,"A:\RAMMS\ROCKFALL\Joel\india_bridge\rocks\Real_Equant_1.4_2.0m3.pts",1,2.79323e+06,1.18012e+06,2287,10,"Real_Equant_1_4_2_0m3_r001_s0001_o0010.txt",0.264631,10799

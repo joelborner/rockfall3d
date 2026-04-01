@@ -1,0 +1,52 @@
+<rockfall3d/>
+
+<terrain dem="N:\ramms\0_ROCKFALL\30_scree\chantsura\chant_sura\dem_20m.tif"/>
+
+<rocks
+    list="data/rocks.txt"
+    density="2500"
+    random_orientations="100"/>
+
+<starts list="data/start_points.txt"/>
+
+<simulation
+    mu="0.5"
+    dt="0.002"
+    adaptive_dt="false"
+    output_dir="output/lowres"
+    orientation_seed="12345"
+    roughness_seed="67890"/>
+
+
+<stop
+    max_time="200.0"
+    max_steps="1000000"
+    settle_min_steps="100"
+    settle_linear_speed="0.1"
+    settle_angular_speed="0.1"/>
+
+<solver
+    type="jor-prox"
+    alpha="0.5"
+    atol="1e-8"
+    rtol="1e-6"
+    maxiter="10000"/>
+
+<adaptive
+    min_dt_ratio="0.05"
+    max_translation_frac="0.35"
+    max_rotation_per_step="0.15"
+    contact_band_frac="0.75"
+    near_contact_dt_scale="0.6"
+    contact_solve_dt="0.002"
+    fixed_contact_dt="true"
+    fixed_near_contact_dt="true"
+    max_penetration_frac="0.10"
+    max_step_refinements="8"
+    max_adaptive_steps_factor="20"/>
+	
+	
+<debug
+	roughness_lookup_mode="optimized"/>
+	
+	

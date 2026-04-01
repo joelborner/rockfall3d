@@ -1,0 +1,6 @@
+overall;0.4
+roughness\RIE_0_035.shp;0.2
+roughness\RIE_0_125.shp;0.6
+roughness\RIE_0_175.shp;0.8
+roughness\RIE_0_25.shp;1.2
+roughness\RIE_0_4.shp;1.8
