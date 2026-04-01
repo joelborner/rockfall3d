@@ -33,6 +33,9 @@
     <ClCompile Include="terrain_rough.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="terrain_tapered.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="fast_io.hpp">
@@ -63,6 +66,24 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="roughness.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="config_io.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="terrain_export.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="terrain_tapered.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="trajectory_io.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="trajectory_format.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="trajectory_recorder.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

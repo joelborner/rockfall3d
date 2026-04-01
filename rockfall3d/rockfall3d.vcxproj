@@ -157,8 +157,10 @@
     <ClInclude Include="terrain_export.hpp" />
     <ClInclude Include="terrain_io.hpp" />
     <ClInclude Include="terrain_tapered.hpp" />
+    <ClInclude Include="trajectory_format.hpp" />
     <ClInclude Include="trajectory_io.hpp" />
     <ClInclude Include="time_stepper.hpp" />
+    <ClInclude Include="trajectory_recorder.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
