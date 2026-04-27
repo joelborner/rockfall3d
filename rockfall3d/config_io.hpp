@@ -46,14 +46,13 @@ struct BatchSimulationConfig
     fs::path rockListPath;
     fs::path startPointsPath;
     fs::path outputDir;
-    std::optional<fs::path> roughnessClassRasterPath;
+    std::optional<fs::path> roughnessRasterPath;
     std::optional<fs::path> terrainExportPath;
     std::optional<Real> terrainExportResolution;
     bool writeTimingReport{ false };
 
     std::vector<fs::path> rockPaths;
     std::vector<Vec3> startPoints;
-    std::vector<Real> roughnessGridSizes;
     StepFunc roughnessStepFunc{ StepFunc::Smoothstep };
 
     std::uint32_t randomOrientations{ 1 };
@@ -346,22 +345,6 @@ inline std::vector<Vec3> load_start_points_file(const fs::path& path)
     return result;
 }
 
-// parses comma-separated list of real numbers from a string
-inline std::vector<Real> parse_real_list(const std::string& text, const std::string& fieldName)
-{
-    std::vector<Real> values;
-    std::string token;
-    std::stringstream ss(text);
-    while (std::getline(ss, token, ',')) {
-        token = trim_copy(token);
-        if (!token.empty()) values.push_back(parse_number<Real>(token, fieldName));
-    }
-    if (values.empty()) {
-        throw std::runtime_error("expected at least one numeric value for " + fieldName);
-    }
-    return values;
-}
-
 inline Eigen::Matrix<Real, 4, 1> make_random_quaternion_wxyz(std::mt19937_64& gen)
 {
     std::uniform_real_distribution<Real> dist(Real(0), Real(1));
@@ -453,12 +436,9 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.solver.maxiter = parse_number<std::uint32_t>(require_attr(*solverTag, "maxiter", "solver"), "solver maxiter");
 
     if (roughnessTag) {
-        cfg.roughnessClassRasterPath = resolve_relative(
+        cfg.roughnessRasterPath = resolve_relative(
             baseDir,
-            require_attr(*roughnessTag, "class_raster", "roughness"));
-        cfg.roughnessGridSizes = parse_real_list(
-            require_attr(*roughnessTag, "grid_sizes", "roughness"),
-            "grid_sizes");
+            require_attr(*roughnessTag, "raster", "roughness"));
         if (const auto stepAttr = optional_attr(*roughnessTag, "step_func")) {
             cfg.roughnessStepFunc = parse_step_func(*stepAttr);
         }
@@ -490,11 +470,8 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     if (cfg.startPoints.empty()) throw std::runtime_error("start points file contains no start points: " + cfg.startPointsPath.string());
 
     if (roughnessTag) {
-        if (!cfg.roughnessClassRasterPath) {
-            throw std::runtime_error("<roughness/> requires class_raster=\"...\"");
-        }
-        if (cfg.roughnessGridSizes.empty()) {
-            throw std::runtime_error("<roughness/> requires grid_sizes=\"...\"");
+        if (!cfg.roughnessRasterPath) {
+            throw std::runtime_error("<roughness/> requires raster=\"...\"");
         }
     }
 

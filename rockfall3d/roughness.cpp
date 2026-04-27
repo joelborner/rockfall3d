@@ -1,55 +1,63 @@
 #include "terrain.hpp"
 #include "terrain_io.hpp"
 
+#include <cmath>
+#include <limits>
+#include <map>
 #include <stdexcept>
 
-void Terrain::addRoughness(const std::string& classRasterPath,
-    const std::vector<Real>& gridSizes,
+void Terrain::addRoughness(const std::string& rasterPath,
     StepFunc stepFunc,
     std::uint64_t seed)
 {
-    if (gridSizes.empty()) {
-        throw std::runtime_error("roughness requires at least one grid size");
-    }
-
-    Terrain cls = load_terrain(classRasterPath); // load roughness class raster
+    Terrain rough = load_terrain(rasterPath); // load raster with grid sizes in map units
 
     roughnessCellClass = Eigen::Array<std::uint16_t, Eigen::Dynamic, Eigen::Dynamic>::Zero(
-        cls.z.rows(), cls.z.cols()); // allocate internal class-ID grid
-    roughnessGridSizes = gridSizes;
-    roughnessClassParams.resize(gridSizes.size());
-    for (std::size_t i = 0; i < gridSizes.size(); ++i) {
-        // Precompute values that are constant for each roughness class.
-        const Real gridSize = gridSizes[i];
-        const Real invGridSize = gridSize > Real(0) ? Real(1) / gridSize : Real(0);
-        const Real taperWidth = Real(0.4) * gridSize;
-        const Real invTaperWidth = taperWidth > Real(0) ? Real(1) / taperWidth : Real(0);
-        roughnessClassParams[i] = RoughnessClassParams{
-            gridSize,
-            invGridSize,
-            taperWidth,
-            invTaperWidth,
-            stepFunc
-        };
-    }
+        rough.z.rows(), rough.z.cols());
+    roughnessClassParams.clear();
 
-    // Convert raster values to integer class IDs for faster access:
-    // 0 -> no roughness, 1 -> first grid size, 2 -> second grid size, ...
-    for (Eigen::Index j = 0; j < cls.z.rows(); ++j) {
-        for (Eigen::Index i = 0; i < cls.z.cols(); ++i) {
-            const Real raw = cls.z(j, i);
-            const auto idx = static_cast<std::int64_t>(std::llround(raw));
-            if (idx >= 1 && idx <= static_cast<std::int64_t>(gridSizes.size())) {
-                roughnessCellClass(j, i) = static_cast<std::uint16_t>(idx);
+    // Convert physical grid sizes to compact class IDs for the hot loop:
+    // non-finite values and values <= 0 mean no roughness.
+    std::map<Real, std::uint16_t> classByGridSize;
+    for (Eigen::Index j = 0; j < rough.z.rows(); ++j) {
+        for (Eigen::Index i = 0; i < rough.z.cols(); ++i) {
+            const Real gridSize = rough.z(j, i);
+            if (!std::isfinite(gridSize) || gridSize <= Real(0)) {
+                continue;
+            }
+
+            auto it = classByGridSize.find(gridSize);
+            if (it == classByGridSize.end()) {
+                if (roughnessClassParams.size() >= std::numeric_limits<std::uint16_t>::max()) {
+                    throw std::runtime_error("roughness raster contains too many distinct grid sizes");
+                }
+
+                const auto classId = static_cast<std::uint16_t>(roughnessClassParams.size() + 1);
+                classByGridSize.emplace(gridSize, classId);
+
+                const Real invGridSize = Real(1) / gridSize;
+                const Real taperWidth = Real(0.4) * gridSize;
+                const Real invTaperWidth = taperWidth > Real(0) ? Real(1) / taperWidth : Real(0);
+                roughnessClassParams.push_back(RoughnessClassParams{
+                    gridSize,
+                    invGridSize,
+                    taperWidth,
+                    invTaperWidth,
+                    stepFunc
+                });
+                roughnessCellClass(j, i) = classId;
+            }
+            else {
+                roughnessCellClass(j, i) = it->second;
             }
         }
     }
 
-    roughnessCellSize = cls.cell;
+    roughnessCellSize = rough.cell;
     invRoughnessCellSize = roughnessCellSize > Real(0) ? Real(1) / roughnessCellSize : Real(0);
-    roughnessXll = cls.xll;
-    roughnessYll = cls.yll;
-    roughnessNx = static_cast<std::uint32_t>(cls.nx);
-    roughnessNy = static_cast<std::uint32_t>(cls.ny);
+    roughnessXll = rough.xll;
+    roughnessYll = rough.yll;
+    roughnessNx = static_cast<std::uint32_t>(rough.nx);
+    roughnessNy = static_cast<std::uint32_t>(rough.ny);
     roughnessSeed = seed;
 }

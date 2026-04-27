@@ -219,8 +219,9 @@ Required attributes when roughness is enabled:
 
 | Attribute | Meaning |
 |---|---|
-| `class_raster` | Coarse class raster for roughness |
-| `grid_sizes` | Comma-separated class grid sizes |
+| `raster` | Roughness raster whose positive finite cell values are roughness grid sizes |
+
+Cells with value `0`, nodata, or NaN disable roughness locally. Query points outside the roughness raster extent are also treated as no roughness.
 
 Optional attributes:
 
@@ -317,8 +318,7 @@ Notes:
     maxiter="10000"/>
 
 <roughness
-    class_raster="data/roughness_class.tif"
-    grid_sizes="0.2,0.4,0.6,0.8,1.2,1.8"
+    raster="data/roughness_grid_size.tif"
     step_func="smoothstep"/>
 
 <output

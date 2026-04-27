@@ -337,10 +337,9 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     }
 
     Terrain dem = load_terrain(cfg.demPath.string());
-    if (cfg.roughnessClassRasterPath) {
+    if (cfg.roughnessRasterPath) {
         dem.addRoughness(
-            cfg.roughnessClassRasterPath->string(),
-            cfg.roughnessGridSizes,
+            cfg.roughnessRasterPath->string(),
             cfg.roughnessStepFunc,
             roughnessSeed);
     }

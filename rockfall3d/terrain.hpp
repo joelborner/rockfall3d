@@ -90,8 +90,7 @@ public:
         const Vec3& xI,
         TerrainQueryWorkspace& ws) const;
 
-    void addRoughness(const std::string& classRasterPath,
-        const std::vector<Real>& gridSizes,
+    void addRoughness(const std::string& rasterPath,
         StepFunc stepFunc,
         std::uint64_t seed);
 
@@ -110,11 +109,11 @@ public:
     MatX          gradx;
     MatX          grady;
 
-    // Coarse roughness classification grid: each cell stores a class ID, not
-    // the physical grid size itself.
+    // Internal compact representation of the roughness raster. Input raster
+    // values are physical grid sizes; repeated grid sizes are stored once in
+    // roughnessClassParams and referenced here by class ID. 0 means no roughness.
     Eigen::Array<std::uint16_t, Eigen::Dynamic, Eigen::Dynamic> roughnessCellClass;
     std::vector<RoughnessClassParams> roughnessClassParams;
-    std::vector<Real>      roughnessGridSizes;
     Real                   roughnessCellSize{ 0 };
     Real                   invRoughnessCellSize{ 0 };
     Real                   roughnessXll{ 0 }, roughnessYll{ 0 };
