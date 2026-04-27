@@ -43,13 +43,8 @@
     max_step_refinements="8"
     max_adaptive_steps_factor="20"/>
 	
-<roughness
-    list="data/roughness2.txt"
-    step_func="smoothstep"/>
-	
 <debug
     terrain_export="output/terrain_debug.asc"
-    terrain_export_resolution="0.1"
-	roughness_lookup_mode="bruteforce"/>
+    terrain_export_resolution="0.1"/>
 	
 	

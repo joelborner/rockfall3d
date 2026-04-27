@@ -138,10 +138,8 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="rock.cpp" />
-    <ClCompile Include="roughness.cpp" />
     <ClCompile Include="terrain.cpp" />
-    <ClCompile Include="terrain_rough.cpp" />
-    <ClCompile Include="terrain_tapered.cpp" />
+    <ClCompile Include="roughness.cpp" />
     <ClCompile Include="time_stepper.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -152,11 +150,10 @@
     <ClInclude Include="math_alias.hpp" />
     <ClInclude Include="polygon_utils.hpp" />
     <ClInclude Include="rock.hpp" />
-    <ClInclude Include="roughness.hpp" />
     <ClInclude Include="terrain.hpp" />
     <ClInclude Include="terrain_export.hpp" />
     <ClInclude Include="terrain_io.hpp" />
-    <ClInclude Include="terrain_tapered.hpp" />
+    <ClInclude Include="roughness.hpp" />
     <ClInclude Include="trajectory_format.hpp" />
     <ClInclude Include="trajectory_io.hpp" />
     <ClInclude Include="time_stepper.hpp" />

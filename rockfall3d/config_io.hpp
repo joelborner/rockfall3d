@@ -1,6 +1,5 @@
 #pragma once
 #include "math_alias.hpp"
-#include "roughness.hpp"
 #include "terrain.hpp"
 #include "time_stepper.hpp"
 #include "trajectory_format.hpp"
@@ -47,18 +46,14 @@ struct BatchSimulationConfig
     fs::path rockListPath;
     fs::path startPointsPath;
     fs::path outputDir;
-    std::optional<fs::path> roughnessListPath;
     std::optional<fs::path> roughnessClassRasterPath;
     std::optional<fs::path> terrainExportPath;
     std::optional<Real> terrainExportResolution;
     bool writeTimingReport{ false };
-    RoughnessBackend roughnessBackend{ RoughnessBackend::None };
-    RoughnessLookupMode roughnessLookupMode{ RoughnessLookupMode::Optimized };
 
     std::vector<fs::path> rockPaths;
     std::vector<Vec3> startPoints;
-    std::vector<std::string> roughnessPaths;
-    std::vector<Real> roughnessRes;
+    std::vector<Real> roughnessGridSizes;
     StepFunc roughnessStepFunc{ StepFunc::Smoothstep };
 
     std::uint32_t randomOrientations{ 1 };
@@ -244,26 +239,6 @@ inline SolverType parse_solver_type(const std::string& text)
     throw std::runtime_error("unknown solver type: " + text);
 }
 
-// parse lookup mode keyword (only for legacy roughness)
-inline RoughnessLookupMode parse_roughness_lookup_mode(const std::string& text)
-{
-    const std::string value = to_lower_copy(trim_copy(text));
-    if (value == "optimized") return RoughnessLookupMode::Optimized;
-    if (value == "legacy" || value == "old") return RoughnessLookupMode::Legacy;
-    if (value == "bruteforce" || value == "brute_force" || value == "brute-force") return RoughnessLookupMode::BruteForce;
-    throw std::runtime_error("unknown roughness lookup mode: " + text);
-}
-
-// parse roughness model type (legacy layers vs. optimised tapered roughness)
-inline RoughnessBackend parse_roughness_backend(const std::string& text)
-{
-    const std::string value = to_lower_copy(trim_copy(text));
-    if (value.empty() || value == "none") return RoughnessBackend::None;
-    if (value == "legacy" || value == "legacy-layers" || value == "legacy_layers") return RoughnessBackend::LegacyLayers;
-    if (value == "tapered-cell" || value == "tapered_cell" || value == "cell") return RoughnessBackend::TaperedCells;
-    throw std::runtime_error("unknown roughness backend: " + text);
-}
-
 // parse output format (txt vs. binary)
 inline OutputFormat parse_output_format(const std::string& text)
 {
@@ -385,43 +360,7 @@ inline std::vector<Vec3> load_start_points_file(const fs::path& path)
     return result;
 }
 
-// reads legacy roughness list file and extracts roughness path and resolution for each line
-inline void load_roughness_list_file(const fs::path& path,
-    std::vector<std::string>& roughnessPaths,
-    std::vector<Real>& roughnessRes)
-{
-    const auto lines = read_nonempty_lines(path);
-    roughnessPaths.clear();
-    roughnessRes.clear();
-    roughnessPaths.reserve(lines.size());
-    roughnessRes.reserve(lines.size());
-
-    for (const auto& line : lines) {
-        const std::size_t sep = line.find(';');
-        if (sep == std::string::npos) {
-            throw std::runtime_error("roughness list entries must use 'path;resolution' or 'resolution;path': " + line);
-        }
-
-        const std::string first = trim_copy(line.substr(0, sep));
-        const std::string second = trim_copy(line.substr(sep + 1));
-
-        try {
-            const Real res = parse_number<Real>(first, "roughness resolution");
-            roughnessPaths.push_back(resolve_relative(path.parent_path(), second).string());
-            roughnessRes.push_back(res);
-        }
-        catch (...) {
-            const Real res = parse_number<Real>(second, "roughness resolution");
-            const fs::path roughPath = (to_lower_copy(first) == "overall")
-                ? fs::path("overall")
-                : resolve_relative(path.parent_path(), first);
-            roughnessPaths.push_back(roughPath.string());
-            roughnessRes.push_back(res);
-        }
-    }
-}
-
-// parses comma-separated list of real numbers from a string (used for tapered roughness generation)
+// parses comma-separated list of real numbers from a string
 inline std::vector<Real> parse_real_list(const std::string& text, const std::string& fieldName)
 {
     std::vector<Real> values;
@@ -544,18 +483,12 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     }
 
     if (roughnessTag) {
-        if (const auto backendAttr = optional_attr(*roughnessTag, "backend")) {
-            cfg.roughnessBackend = parse_roughness_backend(*backendAttr);
-        }
-        if (const auto listAttr = optional_attr(*roughnessTag, "list")) {
-            cfg.roughnessListPath = resolve_relative(baseDir, *listAttr);
-        }
-        if (const auto rasterAttr = optional_attr(*roughnessTag, "class_raster")) {
-            cfg.roughnessClassRasterPath = resolve_relative(baseDir, *rasterAttr);
-        }
-        if (const auto sizesAttr = optional_attr(*roughnessTag, "grid_sizes")) {
-            cfg.roughnessRes = parse_real_list(*sizesAttr, "grid_sizes");
-        }
+        cfg.roughnessClassRasterPath = resolve_relative(
+            baseDir,
+            require_attr(*roughnessTag, "class_raster", "roughness"));
+        cfg.roughnessGridSizes = parse_real_list(
+            require_attr(*roughnessTag, "grid_sizes", "roughness"),
+            "grid_sizes");
         if (const auto stepAttr = optional_attr(*roughnessTag, "step_func")) {
             cfg.roughnessStepFunc = parse_step_func(*stepAttr);
         }
@@ -576,9 +509,6 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
         if (cfg.terrainExportPath.has_value() != cfg.terrainExportResolution.has_value()) {
             throw std::runtime_error("<debug/> must specify both terrain_export and terrain_export_resolution when terrain export is requested");
         }
-        if (const auto modeAttr = optional_attr(*debugTag, "roughness_lookup_mode")) {
-            cfg.roughnessLookupMode = parse_roughness_lookup_mode(*modeAttr);
-        }
         if (const auto reportAttr = optional_attr(*debugTag, "timing_report")) {
             cfg.writeTimingReport = parse_bool(*reportAttr, "timing_report");
         }
@@ -589,26 +519,12 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     if (cfg.rockPaths.empty()) throw std::runtime_error("rock list file contains no rock paths: " + cfg.rockListPath.string());
     if (cfg.startPoints.empty()) throw std::runtime_error("start points file contains no start points: " + cfg.startPointsPath.string());
 
-    if (cfg.roughnessBackend == RoughnessBackend::None) {
-        if (cfg.roughnessListPath || cfg.roughnessClassRasterPath) {
-            cfg.roughnessBackend = cfg.roughnessClassRasterPath
-                ? RoughnessBackend::TaperedCells
-                : RoughnessBackend::LegacyLayers;
-        }
-    }
-
-    if (cfg.roughnessBackend == RoughnessBackend::LegacyLayers && cfg.roughnessListPath) {
-        load_roughness_list_file(*cfg.roughnessListPath, cfg.roughnessPaths, cfg.roughnessRes);
-    }
-    if (cfg.roughnessBackend == RoughnessBackend::LegacyLayers && !cfg.roughnessListPath) {
-        throw std::runtime_error("legacy roughness backend requires roughness list=\"...\"");
-    }
-    if (cfg.roughnessBackend == RoughnessBackend::TaperedCells) {
+    if (roughnessTag) {
         if (!cfg.roughnessClassRasterPath) {
-            throw std::runtime_error("tapered-cell roughness backend requires class_raster=\"...\"");
+            throw std::runtime_error("<roughness/> requires class_raster=\"...\"");
         }
-        if (cfg.roughnessRes.empty()) {
-            throw std::runtime_error("tapered-cell roughness backend requires grid_sizes=\"...\"");
+        if (cfg.roughnessGridSizes.empty()) {
+            throw std::runtime_error("<roughness/> requires grid_sizes=\"...\"");
         }
     }
 

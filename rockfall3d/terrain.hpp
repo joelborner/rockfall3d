@@ -1,29 +1,18 @@
 #pragma once
 #include "math_alias.hpp"
+#include <cstdint>
 #include <cmath>
 #include <limits>
-#include <random>
 #include <vector>
 
-class Roughness;                 // forward declaration
 class Rock;
-enum class StepFunc : std::uint8_t;   // from roughness.hpp
 
-// Legacy layered roughness and tapered-cell roughness use different fast
-// lookup paths. The enum is kept explicit so the simulation code can dispatch
-// once and then stay in a specialized hot path.
-enum class RoughnessLookupMode : std::uint8_t
+// Interpolation kernel used by the roughness Perlin field and taper.
+enum class StepFunc : std::uint8_t
 {
-    Optimized = 0,
-    Legacy = 1,
-    BruteForce = 2
-};
-
-enum class RoughnessBackend : std::uint8_t
-{
-    None = 0,
-    LegacyLayers = 1,
-    TaperedCells = 2
+    Linear = 0,
+    Smoothstep = 1,
+    Smootherstep = 2
 };
 
 enum class TerrainContainment : std::uint8_t
@@ -42,19 +31,17 @@ struct TerrainQueryResult
     std::uint32_t contactCount{ 0 };
 };
 
-struct TaperedClassParams
+struct RoughnessClassParams
 {
     Real gridSize{ 0 };
     Real invGridSize{ 0 };
     Real taperWidth{ 0 };
     Real invTaperWidth{ 0 };
+    StepFunc stepFunc{ StepFunc::Smoothstep };
 };
 
 struct TerrainQueryWorkspace
 {
-    // IrOP is kept for the compatibility path that still routes through the
-    // older matrix-based gap() implementation.
-    MatX IrOP;
     ArrX gN;
     ArrX dhdx;
     ArrX dhdy;
@@ -70,9 +57,6 @@ struct TerrainQueryWorkspace
     // avoids repeated allocations in simulation loop
     void ensureVertexCapacity(std::size_t n)
     {
-        if (IrOP.cols() < static_cast<Eigen::Index>(n)) {
-            IrOP.resize(3, n);
-        }
         if (static_cast<std::size_t>(gN.size()) < n) {
             gN.resize(n);
         }
@@ -97,67 +81,6 @@ struct TerrainQueryWorkspace
 class Terrain
 {
 public:
-    // Classify only checks geometric admissibility of a transformed rock:
-    // rectangular DEM bounds and nodata-free interpolation cells. It does not
-    // compute gap values or gradients. Only for legacy layered roughness model
-    template <typename Derived>
-    TerrainContainment classify(const Eigen::MatrixBase<Derived>& IrOP) const noexcept
-    {
-        const auto x = IrOP.row(0).array();
-        const auto y = IrOP.row(1).array();
-
-        const Real xmin = x.minCoeff();
-        const Real xmax = x.maxCoeff();
-        const Real ymin = y.minCoeff();
-        const Real ymax = y.maxCoeff();
-
-        if (!(xmin >= xll &&
-            xmax <= this->xmax &&
-            ymin >= yll &&
-            ymax <= this->ymax)) {
-            return TerrainContainment::OutOfBounds;
-        }
-
-        for (Eigen::Index p = 0; p < IrOP.cols(); ++p) {
-            const Real xp = IrOP(0, p);
-            const Real yp = IrOP(1, p);
-
-            const Real colf = std::floor((xp - xll) * invCell);
-            const Real rowf = std::floor((yp - yll) * invCell);
-            if (colf < Real(0) || rowf < Real(0)) {
-                return TerrainContainment::OutOfBounds;
-            }
-
-            std::uint32_t col = static_cast<std::uint32_t>(colf);
-            std::uint32_t row = static_cast<std::uint32_t>(rowf);
-            if (col >= nx - 1) col = nx - 2;
-            if (row >= ny - 1) row = ny - 2;
-
-            const Real z00 = z(row, col);
-            const Real z10 = z(row, col + 1);
-            const Real z01 = z(row + 1, col);
-            const Real z11 = z(row + 1, col + 1);
-            if (!std::isfinite(z00) || !std::isfinite(z10)
-                || !std::isfinite(z01) || !std::isfinite(z11)) {
-                return TerrainContainment::NoData;
-            }
-        }
-
-        return TerrainContainment::Inside;
-    }
-
-    template <typename Derived>
-    bool inside(const Eigen::MatrixBase<Derived>& IrOP) const noexcept
-    {
-        return classify(IrOP) == TerrainContainment::Inside;
-    }
-
-    void gap(const Eigen::Ref<const MatX>& IrOP,
-        ArrX& gN,
-        ArrX& dhdx,
-        ArrX& dhdy,
-        IdxV& I_N) const;
-
     // Hot simulation query:
     // - transform/query all vertices at the midpoint qM
     // - collect the contact set
@@ -167,21 +90,18 @@ public:
         const Vec3& xI,
         TerrainQueryWorkspace& ws) const;
 
-    // legacy layered roughness
-    void addRoughness(const std::vector<std::string>& paths,
-        const std::vector<Real>& res,
-        StepFunc stepFunc,
-        std::mt19937* rng = nullptr);
-
-    // new optimised roughness
-    void addTaperedCellRoughness(const std::string& classRasterPath,
+    void addRoughness(const std::string& classRasterPath,
         const std::vector<Real>& gridSizes,
+        StepFunc stepFunc,
         std::uint64_t seed);
 
-    // bitMask used for legacy roughness
-    template <class UInt = std::uint64_t>
-    Eigen::Array<UInt, Eigen::Dynamic, Eigen::Dynamic>
-        buildBitMask(const std::vector<ArrXXb>& layers) const;
+    bool hasRoughness() const noexcept
+    {
+        return roughnessCellSize > Real(0)
+            && roughnessNx > 0
+            && roughnessNy > 0
+            && !roughnessClassParams.empty();
+    }
 
     Real          xll{}, yll{}, cell{};
     Real          xmax{}, ymax{}, invCell{};
@@ -190,26 +110,16 @@ public:
     MatX          gradx;
     MatX          grady;
 
-    std::vector<Roughness> roughness;           // legacy roughness
-    Real                   minrough{ 0 };       // legacy roughness
-    std::uint32_t roughNx{ 0 }, roughNy{ 0 };   // legacy roughness
-    Eigen::Array<std::uint64_t, Eigen::Dynamic, Eigen::Dynamic> roughIndices;   // legacy roughness
-
     // Coarse roughness classification grid: each cell stores a class ID, not
     // the physical grid size itself.
-    Eigen::Array<std::uint16_t, Eigen::Dynamic, Eigen::Dynamic> taperedCellClass;
-    std::vector<TaperedClassParams> taperedClassParams;
-    std::vector<Real>      taperedGridSizes;
-    Real                   taperedCellSize{ 0 };
-    Real                   invTaperedCellSize{ 0 };
-    Real                   taperedXll{ 0 }, taperedYll{ 0 };
-    std::uint32_t          taperedNx{ 0 }, taperedNy{ 0 };
-    std::uint64_t          taperedSeed{ 0 };
-
-    bool shapes{ false };
-    bool hasRoughness{ false };
-    RoughnessBackend roughnessBackend{ RoughnessBackend::None };
-    RoughnessLookupMode roughnessLookupMode{ RoughnessLookupMode::Optimized };
+    Eigen::Array<std::uint16_t, Eigen::Dynamic, Eigen::Dynamic> roughnessCellClass;
+    std::vector<RoughnessClassParams> roughnessClassParams;
+    std::vector<Real>      roughnessGridSizes;
+    Real                   roughnessCellSize{ 0 };
+    Real                   invRoughnessCellSize{ 0 };
+    Real                   roughnessXll{ 0 }, roughnessYll{ 0 };
+    std::uint32_t          roughnessNx{ 0 }, roughnessNy{ 0 };
+    std::uint64_t          roughnessSeed{ 0 };
 };
 
 // Bilinear DEM interpolation once the cell and local coordinates are already

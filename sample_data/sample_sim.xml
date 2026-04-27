@@ -46,7 +46,4 @@
     max_adaptive_steps_factor="20"/>
 	
 	
-<debug
-	roughness_lookup_mode="optimized"/>
-	
 	

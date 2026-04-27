@@ -1,13 +1,13 @@
 # rockfall3d
 
-`rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs, with optional sub-grid roughness modeling through a tapered-cell roughness model.
+`rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs, with optional sub-grid roughness modeling.
 
 The public-facing workflow is XML-driven:
 
 - choose a DEM raster
 - choose one or more rock point clouds
 - choose release points
-- optionally define tapered-cell roughness
+- optionally define roughness
 - run many randomized orientations in parallel
 - write trajectories in text or binary form
 
@@ -18,7 +18,7 @@ This README describes the intended public release surface.
 - DEM-based terrain interaction with bilinear interpolation
 - rigid-body dynamics with quaternion orientation
 - JOR-prox contact solve for terrain interaction
-- tapered-cell roughness on top of coarser DEMs
+- roughness on top of coarser DEMs
 - deterministic orientation and roughness seeds
 - shared-memory parallel execution
 - legacy text or binary-sharded trajectory output
@@ -213,20 +213,20 @@ Required attributes:
 
 ### `<roughness/>`
 
-This tag is optional. It is only needed if tapered roughness is enabled.
+This tag is optional. It is only needed if roughness is enabled.
 
 Required attributes when roughness is enabled:
 
 | Attribute | Meaning |
 |---|---|
-| `class_raster` | Coarse class raster for tapered-cell roughness |
+| `class_raster` | Coarse class raster for roughness |
 | `grid_sizes` | Comma-separated class grid sizes |
 
 Optional attributes:
 
 | Attribute | Default if omitted | Meaning |
 |---|---|---|
-| `step_func` | `smoothstep` | Interpolation kernel used in the tapered roughness model |
+| `step_func` | `smoothstep` | Interpolation kernel used in the roughness model |
 
 ### `<output/>`
 
@@ -317,7 +317,6 @@ Notes:
     maxiter="10000"/>
 
 <roughness
-    backend="tapered-cell"
     class_raster="data/roughness_class.tif"
     grid_sizes="0.2,0.4,0.6,0.8,1.2,1.8"
     step_func="smoothstep"/>

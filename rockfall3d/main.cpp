@@ -349,18 +349,13 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     }
 
     Terrain dem = load_terrain(cfg.demPath.string());
-    std::mt19937 roughnessRng(static_cast<std::mt19937::result_type>(roughnessSeed));
-    // switch between optimized Perlin roughness with on-the-fly hashing vs. precalculated gradient fields
-    if (cfg.roughnessBackend == RoughnessBackend::LegacyLayers && !cfg.roughnessPaths.empty()) {
-        dem.addRoughness(cfg.roughnessPaths, cfg.roughnessRes, cfg.roughnessStepFunc, &roughnessRng);
-    }
-    else if (cfg.roughnessBackend == RoughnessBackend::TaperedCells && cfg.roughnessClassRasterPath) {
-        dem.addTaperedCellRoughness(
+    if (cfg.roughnessClassRasterPath) {
+        dem.addRoughness(
             cfg.roughnessClassRasterPath->string(),
-            cfg.roughnessRes,
+            cfg.roughnessGridSizes,
+            cfg.roughnessStepFunc,
             roughnessSeed);
     }
-    dem.roughnessLookupMode = cfg.roughnessLookupMode;
 
     // export terrain with roughness in a specific resolution if defined in <debug/>
     if (cfg.terrainExportPath && cfg.terrainExportResolution) {
