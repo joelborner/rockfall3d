@@ -61,7 +61,6 @@ struct BatchSimulationConfig
     Real mu{ Real(0.5) };
     Real dt{ Real(0.002) };
     std::optional<Real> dumpStep;
-    bool adaptiveDt{ true };
     std::optional<std::uint64_t> randomSeed;
     std::optional<std::uint64_t> orientationSeed;
     std::optional<std::uint64_t> roughnessSeed;
@@ -70,19 +69,6 @@ struct BatchSimulationConfig
 
     SolverConfig solver;
     TimeStepperStopCriteria stop;
-
-    // adaptive timestepping parameters
-    Real minDtRatio{ Real(0.05) };
-    Real maxTranslationFrac{ Real(0.35) };
-    Real maxRotationPerStep{ Real(0.15) };
-    Real contactBandFrac{ Real(0.75) };
-    Real nearContactDtScale{ Real(0.6) };
-    Real contactSolveDt{ Real(0.002) };
-    bool fixedContactDt{ true };
-    bool fixedNearContactDt{ true };
-    Real maxPenetrationFrac{ Real(0.10) };
-    std::uint32_t maxStepRefinements{ 8 };
-    std::uint32_t maxAdaptiveStepsFactor{ 20 };
 };
 
 // removes whitespace at the beginning and end of a string and returns cleaned copy
@@ -410,7 +396,6 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto simulationTag = find_tag_attributes(xml, "simulation");
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
-    const auto adaptiveTag = find_tag_attributes(xml, "adaptive");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
     const auto outputTag = find_tag_attributes(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
@@ -435,7 +420,6 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
             throw std::runtime_error("dump_step must be positive");
         }
     }
-    cfg.adaptiveDt = parse_bool(require_attr(*simulationTag, "adaptive_dt", "simulation"), "adaptive_dt");
     cfg.outputDir = resolve_relative(baseDir, require_attr(*simulationTag, "output_dir", "simulation"));
     if (const auto workersAttr = optional_attr(*simulationTag, "parallel_threads")) {
         cfg.parallelThreads = parse_number<std::uint32_t>(*workersAttr, "parallel_threads");
@@ -467,20 +451,6 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.solver.atol = parse_number<Real>(require_attr(*solverTag, "atol", "solver"), "solver atol");
     cfg.solver.rtol = parse_number<Real>(require_attr(*solverTag, "rtol", "solver"), "solver rtol");
     cfg.solver.maxiter = parse_number<std::uint32_t>(require_attr(*solverTag, "maxiter", "solver"), "solver maxiter");
-
-    if (adaptiveTag) {
-        if (const auto value = optional_attr(*adaptiveTag, "min_dt_ratio")) cfg.minDtRatio = parse_number<Real>(*value, "min_dt_ratio");
-        if (const auto value = optional_attr(*adaptiveTag, "max_translation_frac")) cfg.maxTranslationFrac = parse_number<Real>(*value, "max_translation_frac");
-        if (const auto value = optional_attr(*adaptiveTag, "max_rotation_per_step")) cfg.maxRotationPerStep = parse_number<Real>(*value, "max_rotation_per_step");
-        if (const auto value = optional_attr(*adaptiveTag, "contact_band_frac")) cfg.contactBandFrac = parse_number<Real>(*value, "contact_band_frac");
-        if (const auto value = optional_attr(*adaptiveTag, "near_contact_dt_scale")) cfg.nearContactDtScale = parse_number<Real>(*value, "near_contact_dt_scale");
-        if (const auto value = optional_attr(*adaptiveTag, "contact_solve_dt")) cfg.contactSolveDt = parse_number<Real>(*value, "contact_solve_dt");
-        if (const auto value = optional_attr(*adaptiveTag, "fixed_contact_dt")) cfg.fixedContactDt = parse_bool(*value, "fixed_contact_dt");
-        if (const auto value = optional_attr(*adaptiveTag, "fixed_near_contact_dt")) cfg.fixedNearContactDt = parse_bool(*value, "fixed_near_contact_dt");
-        if (const auto value = optional_attr(*adaptiveTag, "max_penetration_frac")) cfg.maxPenetrationFrac = parse_number<Real>(*value, "max_penetration_frac");
-        if (const auto value = optional_attr(*adaptiveTag, "max_step_refinements")) cfg.maxStepRefinements = parse_number<std::uint32_t>(*value, "max_step_refinements");
-        if (const auto value = optional_attr(*adaptiveTag, "max_adaptive_steps_factor")) cfg.maxAdaptiveStepsFactor = parse_number<std::uint32_t>(*value, "max_adaptive_steps_factor");
-    }
 
     if (roughnessTag) {
         cfg.roughnessClassRasterPath = resolve_relative(

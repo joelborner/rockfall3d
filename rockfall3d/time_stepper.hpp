@@ -37,7 +37,7 @@ inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
 
 struct TimeStepperResult
 {
-    // Accepted states only. Rejected adaptive substeps never appear here.
+    // Accepted fixed-step states.
     std::vector<Real>                           t;
     std::vector<Eigen::Matrix<Real, 7, 1>>     q;
     std::vector<Vec6>                           u;
@@ -82,21 +82,6 @@ public:
     Real atol = Real(1e-8);
     Real rtol = Real(1e-6);
     std::uint32_t maxiter = 10000;
-
-    // Adaptive timestep controls. dt in run(...) is interpreted as the
-    // nominal/free-flight step size, which may be reduced when needed.
-    bool adaptive = true;
-    Real minDtRatio = Real(0.05);              // lower bound relative to dt
-    Real maxTranslationFrac = Real(0.35);      // max traveled cell fraction per step
-    Real maxRotationPerStep = Real(0.15);      // rad, based on |omega| * dt
-    Real contactBandFrac = Real(0.75);         // near-contact band in DEM cell units
-    Real nearContactDtScale = Real(0.6);       // extra shrink factor close to contact
-    Real contactSolveDt = Real(0.002);         // maximum dt while solving contact
-    bool fixedContactDt = true;                // cap dt by contactSolveDt once contact is active
-    bool fixedNearContactDt = true;            // cap dt by contactSolveDt in the near-contact band
-    Real maxPenetrationFrac = Real(0.10);      // reject a step if midpoint penetration is too deep
-    std::uint32_t maxStepRefinements = 8;      // max halvings for one attempted step
-    std::uint32_t maxAdaptiveStepsFactor = 20; // fallback guard when stop.maxSteps is not tightened
 
     // Run and keep all dumped states in memory.
     TimeStepperResult run(Real mu,

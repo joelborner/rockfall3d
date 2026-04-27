@@ -12,7 +12,6 @@
 <simulation
     mu="0.5"
     dt="0.002"
-    adaptive_dt="false"
     output_dir="output/lowres"
     orientation_seed="12345"
     roughness_seed="67890"/>
@@ -32,18 +31,3 @@
     rtol="1e-6"
     maxiter="10000"/>
 
-<adaptive
-    min_dt_ratio="0.05"
-    max_translation_frac="0.35"
-    max_rotation_per_step="0.15"
-    contact_band_frac="0.75"
-    near_contact_dt_scale="0.6"
-    contact_solve_dt="0.002"
-    fixed_contact_dt="true"
-    fixed_near_contact_dt="true"
-    max_penetration_frac="0.10"
-    max_step_refinements="8"
-    max_adaptive_steps_factor="20"/>
-	
-	
-	

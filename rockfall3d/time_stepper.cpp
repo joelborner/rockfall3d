@@ -7,72 +7,8 @@
 
 namespace {
 
-// Clamp the adaptive proposal to the configured admissible interval (only for adaptive timestepping)
-Real clamp_dt(Real value, Real dtMin, Real dtMax)
-{
-    return std::max(dtMin, std::min(value, dtMax));
-}
-
-// Contact solves can demand a stricter time step than free flight
-Real contact_target_dt(const TimeStepper& stepper, Real baseDt)
-{
-    return std::min(baseDt, stepper.contactSolveDt);
-}
-
-// adaptive dt controller used after each accepted step
-// The proposal is based on:
-// - translational travel relative to DEM cell size
-// - rotational increment per step
-// - proximity to first contact
-// - active contact state
-Real propose_next_dt(const TimeStepper& stepper,
-    const Terrain& dem,
-    Real minPositiveGap,
-    std::uint32_t contactCount,
-    const Vec6& velocity,
-    Real baseDt)
-{
-    if (!stepper.adaptive) {
-        return baseDt;
-    }
-
-    const Real tiny = Real(1e-12);
-    const Real dtMin = std::max(baseDt * stepper.minDtRatio, tiny);
-    const Real dtContact = std::max(contact_target_dt(stepper, baseDt), dtMin);
-    Real nextDt = baseDt;
-
-    const Real vNorm = velocity.head<3>().norm();
-    if (vNorm > tiny) {
-        nextDt = std::min(nextDt,
-            (stepper.maxTranslationFrac * dem.cell) / vNorm);
-    }
-
-    const Real omegaNorm = velocity.tail<3>().norm();
-    if (omegaNorm > tiny) {
-        nextDt = std::min(nextDt,
-            stepper.maxRotationPerStep / omegaNorm);
-    }
-
-    if (std::isfinite(minPositiveGap) && vNorm > tiny) {
-        const Real nearBand = stepper.contactBandFrac * dem.cell;
-        if (minPositiveGap < nearBand) {
-            nextDt = std::min(nextDt,
-                stepper.nearContactDtScale * minPositiveGap / vNorm);
-            if (stepper.fixedNearContactDt) {
-                nextDt = std::min(nextDt, dtContact);
-            }
-        }
-    }
-
-    if (contactCount > 0 && stepper.fixedContactDt) {
-        nextDt = std::min(nextDt, dtContact);
-    }
-
-    return clamp_dt(nextDt, dtMin, baseDt);
-}
-
-// transforms 6-dimensional generalised velocities (vx,vy,vz,wx,wy,wz) 
-// into 7-dimensional derivative of q d/dt(x,y,z,e0,e1,e2,e3)
+// Transforms 6-dimensional generalised velocities (vx,vy,vz,wx,wy,wz)
+// into the 7-dimensional derivative d/dt(x,y,z,e0,e1,e2,e3).
 static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
     const Vec6& u)
 {
@@ -80,7 +16,6 @@ static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
 
     const Real wx = u(3), wy = u(4), wz = u(5);
 
-    // quaternion
     const Real e0 = q(3);
     const Real e1 = q(4);
     const Real e2 = q(5);
@@ -97,13 +32,13 @@ static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
     return qprime;
 }
 
-// Shared stepping kernel used by both the in-memory and recorder-based APIs.
+// Shared fixed-step kernel used by both the in-memory and recorder-based APIs.
 // The scheme follows the same high-level structure throughout:
 // 1. build midpoint state qM
 // 2. query gap at the midpoint
 // 3. solve contact impulses with JOR-prox if needed
 // 4. advance to the end state
-// 5. accept if converged, record, and continue to the next dt
+// 5. accept, record, and continue with the next fixed step
 TimeStepperRunSummary run_core(const TimeStepper& stepper,
     Real mu,
     const Terrain& dem,
@@ -124,7 +59,6 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     summary.minGapFinal.reset();
     summary.stopReason = TimeStepperStopReason::Unknown;
 
-    // reset output containers before run starts
     if (result) {
         result->t.clear();
         result->q.clear();
@@ -132,7 +66,6 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
         result->stopReason = TimeStepperStopReason::Unknown;
     }
 
-    // check for invalid input
     if (!(dt > Real(0)) || !(tEnd > tStart)) {
         summary.stopReason = TimeStepperStopReason::InvalidInput;
         if (result) {
@@ -144,24 +77,17 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
         return summary;
     }
 
-    const Real baseDt = dt;
+    const std::uint32_t reserveGuess = std::max<std::uint32_t>(
+        static_cast<std::uint32_t>(std::ceil(stop.maxTime / dt)) + 1,
+        16u);
+    const std::uint32_t maxSteps = stop.maxSteps > 0
+        ? stop.maxSteps
+        : reserveGuess;
 
-    // only important if adaptive timestepping is chosen
-    const Real dtMin = stepper.adaptive
-        ? std::max(baseDt * stepper.minDtRatio, Real(1e-12))
-        : baseDt;
-    const Real dtContact = std::max(contact_target_dt(stepper, baseDt), dtMin);
-    const Real allowedPenetration = stepper.maxPenetrationFrac * dem.cell;
-
-    // preallocate approximate space to avoid repeated reallocations
     if (result) {
-        const std::uint32_t reserveGuess = std::max<std::uint32_t>(
-            static_cast<std::uint32_t>(std::ceil(stop.maxTime / baseDt)) + 1,
-            16u);
         result->t.reserve(reserveGuess);
         result->q.reserve(reserveGuess);
         result->u.reserve(reserveGuess);
-        // store initial state
         result->t.push_back(tStart);
         result->q.push_back(rock.q0());
         result->u.push_back(rock.u0());
@@ -169,17 +95,6 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
     Real t = tStart;
     std::uint32_t stepIdx = 0;
-    // estimate how many steps we expect if we roughly advance with baseDt until maxTime
-    const std::uint32_t reserveGuess = std::max<std::uint32_t>(
-        static_cast<std::uint32_t>(std::ceil(stop.maxTime / baseDt)) + 1,
-        16u);
-    // safety limit for adaptive stepping
-    const std::uint32_t fallbackMaxSteps = std::max<std::uint32_t>(
-        reserveGuess,
-        reserveGuess * stepper.maxAdaptiveStepsFactor);
-    const std::uint32_t maxSteps = stop.maxSteps > 0
-        ? stop.maxSteps
-        : fallbackMaxSteps;
 
     Vec6 uA = rock.u0();
     Eigen::Matrix<Real, 7, 1> qA = rock.q0();
@@ -188,7 +103,6 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     MatX PT = MatX::Zero(static_cast<Eigen::Index>(rock.nVert()), 2);
 
     const Mat6 MM_inv = rock.massMatrix().inverse();
-    Real stepDt = baseDt;
 
     workspace.terrain.ensureVertexCapacity(rock.nVert());
     workspace.terrain.ensureContactCapacity(rock.nVert());
@@ -196,140 +110,100 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
     while (t < tEnd && stepIdx < maxSteps)
     {
-        // Never step beyond the requested final simulation time.
-        stepDt = std::min(stepDt, tEnd - t);
-        bool accepted = false;
-        bool terminate = false;
+        const Real stepDt = std::min(dt, tEnd - t);
 
-        for (std::uint32_t refine = 0; refine <= stepper.maxStepRefinements; ++refine)
+        // Evaluate contact at the midpoint of the fixed step.
+        const auto qM = qA + qdot(qA, uA) * (stepDt * Real(0.5));
+        Vec6 hM = Vec6::Zero();
+        hM(2) = -rock.mass() * Real(9.81);
+        const Vec6 rhs = hM * stepDt;
+
+        Quat quatK(qM(3), qM(4), qM(5), qM(6));
+        quatK.normalize();
+        const Mat3 AIK = quatK.toRotationMatrix();
+        const Vec3 xM = qM.head<3>();
+
+        // queryPose returns:
+        // - bounds / nodata classification
+        // - all vertex gaps
+        // - midpoint contact set
+        // - DEM / roughness gradients only for contact vertices
+        const TerrainQueryResult query = dem.queryPose(rock, AIK, xM, workspace.terrain);
+
+        if (query.state != TerrainContainment::Inside) {
+            summary.stopReason = (query.state == TerrainContainment::NoData)
+                ? TimeStepperStopReason::NoData
+                : TimeStepperStopReason::OutOfBounds;
+            break;
+        }
+
+        Vec6 uE;
+        if (query.contactCount > 0)
         {
-            // Evaluate contact at the midpoint of the current tentative step.
-            const auto qM = qA + qdot(qA, uA) * (stepDt * Real(0.5));
-            Vec6 hM = Vec6::Zero();
-            hM(2) = -rock.mass() * Real(9.81);
-            const Vec6 rhs = hM * stepDt;
+            // Build normal / tangential contact operators for the active
+            // contact vertices only, then solve the proximal contact step.
+            make_Wmat(rock,
+                workspace.terrain.contactIdx.data(),
+                query.contactCount,
+                AIK,
+                workspace.terrain.dhdx.data(),
+                workspace.terrain.dhdy.data(),
+                workspace.solver.WN,
+                workspace.solver.WT1,
+                workspace.solver.WT2);
 
-            Quat quatK(qM(3), qM(4), qM(5), qM(6));
-            quatK.normalize();
-            const Mat3 AIK = quatK.toRotationMatrix();
-            const Vec3 xM = qM.head<3>();
-
-            // queryPose returns:
-            // - bounds / nodata classification
-            // - all vertex gaps
-            // - midpoint contact set
-            // - DEM / roughness gradients only for contact vertices
-            const TerrainQueryResult query = dem.queryPose(rock, AIK, xM, workspace.terrain);
-
-            // out of bounds check
-            if (query.state != TerrainContainment::Inside) {
-                if (query.state == TerrainContainment::OutOfBounds
-                    && stepper.adaptive && stepDt > dtMin * Real(1.01) && (t + stepDt) < tEnd) {
-                    stepDt = std::max(stepDt * Real(0.5), dtMin);
-                    continue;
-                }
-                summary.stopReason = (query.state == TerrainContainment::NoData)
-                    ? TimeStepperStopReason::NoData
-                    : TimeStepperStopReason::OutOfBounds;
-                terminate = true;
-                break;
+            const Eigen::Index nC = static_cast<Eigen::Index>(query.contactCount);
+            for (Eigen::Index j = 0; j < nC; ++j) {
+                const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
+                workspace.solver.PNsub(j) = PN(v);
+                workspace.solver.PTsub(j, 0) = PT(v, 0);
+                workspace.solver.PTsub(j, 1) = PT(v, 1);
             }
 
-            // adaptive time stepping logic
-            const Real maxPenetration = std::max(Real(0), -query.minGap);
-            if (stepper.adaptive && maxPenetration > allowedPenetration && stepDt > dtMin * Real(1.01)) {
-                stepDt = std::max(stepDt * Real(0.5), dtMin);
-                continue;
+            uE = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+                mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+
+            for (Eigen::Index j = 0; j < nC; ++j) {
+                const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
+                PN(v) = workspace.solver.PNsub(j);
+                PT(v, 0) = workspace.solver.PTsub(j, 0);
+                PT(v, 1) = workspace.solver.PTsub(j, 1);
             }
-            const bool nearContact = std::isfinite(query.minPositiveGap)
-                && query.minPositiveGap < stepper.contactBandFrac * dem.cell;
-            if (stepper.adaptive && stepper.fixedNearContactDt && nearContact && stepDt > dtContact * Real(1.01)) {
-                stepDt = dtContact;
-                continue;
-            }
-            if (stepper.adaptive && stepper.fixedContactDt && query.contactCount > 0 && stepDt > dtContact * Real(1.01)) {
-                stepDt = dtContact;
-                continue;
-            }
-
-            Vec6 uE;
-            // solve contact problem
-            if (query.contactCount > 0)
-            {
-                // Build normal / tangential contact operators for the active
-                // contact vertices only, then solve the proximal contact step.
-                make_Wmat(rock,
-                    workspace.terrain.contactIdx.data(),
-                    query.contactCount,
-                    AIK,
-                    workspace.terrain.dhdx.data(),
-                    workspace.terrain.dhdy.data(),
-                    workspace.solver.WN,
-                    workspace.solver.WT1,
-                    workspace.solver.WT2);
-
-                const Eigen::Index nC = static_cast<Eigen::Index>(query.contactCount);
-                for (Eigen::Index j = 0; j < nC; ++j) {
-                    const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
-                    workspace.solver.PNsub(j) = PN(v);
-                    workspace.solver.PTsub(j, 0) = PT(v, 0);
-                    workspace.solver.PTsub(j, 1) = PT(v, 1);
-                }
-
-                uE = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
-                    mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
-
-                for (Eigen::Index j = 0; j < nC; ++j) {
-                    const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
-                    PN(v) = workspace.solver.PNsub(j);
-                    PT(v, 0) = workspace.solver.PTsub(j, 0);
-                    PT(v, 1) = workspace.solver.PTsub(j, 1);
-                }
-            }
-            else {
-                // all contacts are open
-                uE = uA + MM_inv * rhs;
-                PN.setZero();
-                PT.setZero();
-            }
-
-            // Trapezoidal-style state update using midpoint kinematics and the
-            // average of old/new generalized velocities.
-            Eigen::Matrix<Real, 7, 1> qE =
-                (qA + qdot(qM, (uA + uE) * Real(0.5)) * stepDt).eval();
-            Quat qc(qE(3), qE(4), qE(5), qE(6));
-            qc.normalize();
-            qE.segment<4>(3) << qc.w(), qc.x(), qc.y(), qc.z();
-
-            t += stepDt;
-            ++stepIdx;
-
-            summary.tFinal = t;
-            summary.acceptedSteps = stepIdx;
-            summary.qFinal = qE;
-            summary.uFinal = uE;
-            summary.minGapFinal = query.minGap;
-
-            if (result) {
-                result->t.push_back(t);
-                result->q.push_back(qE);
-                result->u.push_back(uE);
-            }
-            // dump time step result to binary file
-            if (recorder) {
-                recorder->onAcceptedStep(RecordedStepData{ t, qE, uE, query.minGap });
-            }
-
-            qA.swap(qE);
-            uA.swap(uE);
-            stepDt = propose_next_dt(stepper, dem, query.minPositiveGap, query.contactCount, uA, baseDt);
-            accepted = true;
-            break;
+        }
+        else {
+            uE = uA + MM_inv * rhs;
+            PN.setZero();
+            PT.setZero();
         }
 
-        if (terminate || !accepted) {
-            break;
+        // Trapezoidal-style state update using midpoint kinematics and the
+        // average of old/new generalized velocities.
+        Eigen::Matrix<Real, 7, 1> qE =
+            (qA + qdot(qM, (uA + uE) * Real(0.5)) * stepDt).eval();
+        Quat qc(qE(3), qE(4), qE(5), qE(6));
+        qc.normalize();
+        qE.segment<4>(3) << qc.w(), qc.x(), qc.y(), qc.z();
+
+        t += stepDt;
+        ++stepIdx;
+
+        summary.tFinal = t;
+        summary.acceptedSteps = stepIdx;
+        summary.qFinal = qE;
+        summary.uFinal = uE;
+        summary.minGapFinal = query.minGap;
+
+        if (result) {
+            result->t.push_back(t);
+            result->q.push_back(qE);
+            result->u.push_back(uE);
         }
+        if (recorder) {
+            recorder->onAcceptedStep(RecordedStepData{ t, qE, uE, query.minGap });
+        }
+
+        qA.swap(qE);
+        uA.swap(uE);
 
         // Low-energy settling stop. This is intentionally based on the norms
         // of the accepted generalized velocity, not on contact state.

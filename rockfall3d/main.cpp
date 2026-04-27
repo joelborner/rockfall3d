@@ -294,18 +294,6 @@ TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
     step.atol = cfg.solver.atol;
     step.rtol = cfg.solver.rtol;
     step.maxiter = cfg.solver.maxiter;
-    step.adaptive = cfg.adaptiveDt;
-    step.minDtRatio = cfg.minDtRatio;
-    step.maxTranslationFrac = cfg.maxTranslationFrac;
-    step.maxRotationPerStep = cfg.maxRotationPerStep;
-    step.contactBandFrac = cfg.contactBandFrac;
-    step.nearContactDtScale = cfg.nearContactDtScale;
-    step.contactSolveDt = cfg.contactSolveDt;
-    step.fixedContactDt = cfg.fixedContactDt;
-    step.fixedNearContactDt = cfg.fixedNearContactDt;
-    step.maxPenetrationFrac = cfg.maxPenetrationFrac;
-    step.maxStepRefinements = cfg.maxStepRefinements;
-    step.maxAdaptiveStepsFactor = cfg.maxAdaptiveStepsFactor;
     return step;
 }
 
