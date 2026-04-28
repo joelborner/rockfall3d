@@ -106,13 +106,13 @@ The file referenced by `<rocks list="..."/>` contains one rock point-cloud path 
 The file referenced by `<starts list="..."/>` contains:
 
 ```text
-X Y dz
+X Y Z dz
 ```
 
-where:
+where `dz` is optional:
 
-- `X`, `Y` are plan coordinates
-- `dz` is the desired initial clearance between the terrain and the lowest rock vertex after the initial orientation is applied
+- if 3 columns are defined, `X`, `Y`, `Z` are the absolute start coordinates of the centre of mass of the rock.
+- if 4 columns are defined,`dz` is the desired initial clearance between the terrain and the lowest rock vertex after the initial orientation is applied. In this case, `Z` is ignored. 
 
 ## XML Configuration Reference
 

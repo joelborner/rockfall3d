@@ -31,6 +31,19 @@ struct SolverConfig
     std::uint32_t maxiter{ 10000 };
 };
 
+struct StartPoint
+{
+    Real x{ Real(0) };
+    Real y{ Real(0) };
+    Real z{ Real(0) };
+    std::optional<Real> dz;
+
+    bool isTerrainRelative() const noexcept
+    {
+        return dz.has_value();
+    }
+};
+
 struct BatchSimulationConfig
 {
     // Resolved file-system inputs and parsed simulation settings.
@@ -45,7 +58,7 @@ struct BatchSimulationConfig
     bool writeTimingReport{ false };
 
     std::vector<fs::path> rockPaths;
-    std::vector<Vec3> startPoints;
+    std::vector<StartPoint> startPoints;
     StepFunc roughnessStepFunc{ StepFunc::Smoothstep };
 
     std::uint32_t randomOrientations{ 1 };
@@ -317,23 +330,34 @@ inline std::vector<fs::path> load_path_list_file(const fs::path& path)
     return result;
 }
 
-// reads start-point text file and parses each line as X,Y,dz
-// TODO: set dz to 0 if only 2 values are provided
-inline std::vector<Vec3> load_start_points_file(const fs::path& path)
+// Reads start-point files in one of two forms:
+// - X Y Z       : use absolute world-space release coordinates directly
+// - X Y Z dz    : ignore the given Z and instead place the rock dz above the
+//                 terrain (including optional roughness) at X/Y
+inline std::vector<StartPoint> load_start_points_file(const fs::path& path)
 {
     const auto lines = read_nonempty_lines(path);
-    std::vector<Vec3> result;
+    std::vector<StartPoint> result;
     result.reserve(lines.size());
     for (const auto& line : lines) {
         std::istringstream in(line);
-        Real x{}, y{}, dz{};
-        in >> x >> y >> dz;
-        if (!in || !(in >> std::ws).eof()) {
+        std::vector<Real> values;
+        Real value{};
+        while (in >> value) {
+            values.push_back(value);
+        }
+        if (!in.eof() || (values.size() != 3 && values.size() != 4)) {
             throw std::runtime_error("invalid start point line in " + path.string() + ": " + line);
         }
-        // Start-point files now store X, Y, dz, where dz is the desired
-        // clearance between the lowest rock vertex and the terrain.
-        result.emplace_back((Vec3() << x, y, dz).finished());
+
+        StartPoint point;
+        point.x = values[0];
+        point.y = values[1];
+        point.z = values[2];
+        if (values.size() == 4) {
+            point.dz = values[3];
+        }
+        result.push_back(point);
     }
     return result;
 }

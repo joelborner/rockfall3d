@@ -88,6 +88,16 @@ std::string csv_quoted(const std::string& value)
     return escaped;
 }
 
+std::string csv_optional_real(const std::optional<Real>& value)
+{
+    if (!value.has_value()) {
+        return std::string();
+    }
+    std::ostringstream out;
+    out << *value;
+    return out.str();
+}
+
 double bytes_to_gib(std::uint64_t bytes) noexcept
 {
     return static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
@@ -256,12 +266,17 @@ std::uint64_t splitmix64(std::uint64_t x) noexcept
     return x ^ (x >> 31);
 }
 
-// Build the initial pose from x/y + initial orientation + dz offset above terrain.
-// The release point stores dz as the desired offset between the lowest rock
-// vertex and the terrain after the initial orientation has been applied.
-Eigen::Matrix<Real, 7, 1> make_initial_pose(const Terrain& dem,
+struct InitialPoseResult
+{
+    Eigen::Matrix<Real, 7, 1> pose;
+    std::optional<Real> initialMinGap;
+};
+
+// Build the initial pose either from an absolute XYZ release point or from an
+// X/Y location plus a dz clearance above the terrain after orientation.
+InitialPoseResult make_initial_pose(const Terrain& dem,
     const Rock& rock,
-    const Vec3& startPoint,
+    const StartPoint& startPoint,
     std::uint64_t orientationSeed,
     std::size_t globalRunIndex,
     TerrainQueryWorkspace& terrainWorkspace)
@@ -274,8 +289,10 @@ Eigen::Matrix<Real, 7, 1> make_initial_pose(const Terrain& dem,
     quatK.normalize();
     const Mat3 AIK = quatK.toRotationMatrix();
 
-    // calculate gap for z = 0 on the simulated terrain
-    const Vec3 startXY0(startPoint.x(), startPoint.y(), Real(0));
+    // Calculate the terrain gap for z = 0 so we can either convert a dz
+    // clearance into an absolute release height or derive the actual initial
+    // jump height for an absolute-Z release point.
+    const Vec3 startXY0(startPoint.x, startPoint.y, Real(0));
     const TerrainQueryResult query = dem.queryPose(rock, AIK, startXY0, terrainWorkspace);
     if (query.state == TerrainContainment::OutOfBounds) {
         throw std::runtime_error("initial rock placement extends outside the DEM extent at start point");
@@ -284,13 +301,15 @@ Eigen::Matrix<Real, 7, 1> make_initial_pose(const Terrain& dem,
         throw std::runtime_error("initial rock placement encounters DEM nodata at start point");
     }
 
-    // Offset rock by minimal gap (terrain height) and input z-offset
-    const Real dz = startPoint.z();
-    const Real z0 = -query.minGap + dz;
+    const Real z0 = startPoint.dz.has_value()
+        ? (-query.minGap + *startPoint.dz)
+        : startPoint.z;
+    const Real initialMinGap = query.minGap + z0;
 
-    Eigen::Matrix<Real, 7, 1> pose;
-    pose << startPoint.x(), startPoint.y(), z0, q(0), q(1), q(2), q(3);
-    return pose;
+    InitialPoseResult result;
+    result.pose << startPoint.x, startPoint.y, z0, q(0), q(1), q(2), q(3);
+    result.initialMinGap = initialMinGap;
+    return result;
 }
 
 // Translate XML configuration into the runtime timestepper object.
@@ -441,7 +460,10 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
             const SimulationJob& job = jobs[jobIdx];
             const Rock& rockTemplate = rockTemplates[job.rockIndex];
             const fs::path& rockPath = rockTemplatePaths[job.rockIndex];
-            const Vec3& startPoint = cfg.startPoints[job.startIndex];
+            const StartPoint& startPoint = cfg.startPoints[job.startIndex];
+            std::optional<Real> manifestStartZ = startPoint.dz.has_value()
+                ? std::nullopt
+                : std::optional<Real>(startPoint.z);
 
             const std::string caseName = make_case_name(
                 rockPath,
@@ -450,7 +472,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 static_cast<std::size_t>(job.orientationIndex + 1));
             try {
                 // generate initial conditions
-                const auto initialPose = make_initial_pose(
+                const InitialPoseResult initialPlacement = make_initial_pose(
                     dem,
                     rockTemplate,
                     startPoint,
@@ -460,7 +482,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
 
                 Rock runRock = rockTemplate.withInitialState(
                     Vec6::Zero(),
-                    initialPose);
+                    initialPlacement.pose);
+                manifestStartZ = initialPlacement.pose(2);
 
                 const auto t0 = std::chrono::high_resolution_clock::now();
                 std::size_t writtenSamples = 0;
@@ -486,7 +509,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         Real(0),
                         runRock.q0(),
                         runRock.u0(),
-                        startPoint.z()
+                        initialPlacement.initialMinGap
                         });
 
                     recordedSummary = step.runRecorded(
@@ -542,7 +565,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << (job.rockIndex + 1) << ','
                     << csv_quoted(rockPath.string()) << ','
                     << (job.startIndex + 1) << ','
-                    << startPoint.x() << ',' << startPoint.y() << ',' << startPoint.z() << ','
+                    << startPoint.x << ',' << startPoint.y << ',' << csv_optional_real(manifestStartZ) << ','
                     << (job.orientationIndex + 1) << ','
                     << csv_quoted(caseName) << ','
                     << run_status_name(failed) << ','
@@ -578,7 +601,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << (job.rockIndex + 1) << ','
                     << csv_quoted(rockPath.string()) << ','
                     << (job.startIndex + 1) << ','
-                    << startPoint.x() << ',' << startPoint.y() << ',' << startPoint.z() << ','
+                    << startPoint.x << ',' << startPoint.y << ',' << csv_optional_real(manifestStartZ) << ','
                     << (job.orientationIndex + 1) << ','
                     << csv_quoted(caseName) << ','
                     << "SKIPPED" << ','
@@ -606,7 +629,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << (job.rockIndex + 1) << ','
                     << csv_quoted(rockPath.string()) << ','
                     << (job.startIndex + 1) << ','
-                    << startPoint.x() << ',' << startPoint.y() << ',' << startPoint.z() << ','
+                    << startPoint.x << ',' << startPoint.y << ',' << csv_optional_real(manifestStartZ) << ','
                     << (job.orientationIndex + 1) << ','
                     << csv_quoted(caseName) << ','
                     << "SKIPPED" << ','
@@ -653,7 +676,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     if (!manifest) {
         throw std::runtime_error("cannot open manifest.csv in output directory");
     }
-    manifest << "run_index,rock_index,rock_path,start_index,start_x,start_y,start_dz,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples\n";
+    manifest << "run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples\n";
     for (const auto& line : manifestLines) {
         manifest << line << '\n';
     }
