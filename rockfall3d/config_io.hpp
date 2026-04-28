@@ -21,17 +21,10 @@
 
 namespace fs = std::filesystem;
 
-// solver type used in timestepping loop
-enum class SolverType
-{
-    JorProx,
-    SorProx
-};
-
 // solver parameters
 struct SolverConfig
 {
-    SolverType type{ SolverType::JorProx };
+    ContactSolverType type{ ContactSolverType::JorProx };
     Real alpha{ Real(0.5) };
     Real atol{ Real(1e-8) };
     Real rtol{ Real(1e-6) };
@@ -216,11 +209,11 @@ inline StepFunc parse_step_func(const std::string& text)
 }
 
 // parse solver type keyword
-inline SolverType parse_solver_type(const std::string& text)
+inline ContactSolverType parse_solver_type(const std::string& text)
 {
     const std::string value = to_lower_copy(trim_copy(text));
-    if (value == "jor" || value == "jor-prox" || value == "jor_prox") return SolverType::JorProx;
-    if (value == "sor" || value == "sor-prox" || value == "sor_prox") return SolverType::SorProx;
+    if (value == "jor" || value == "jor-prox" || value == "jor_prox" || value == "jorprox") return ContactSolverType::JorProx;
+    if (value == "sor" || value == "sor-prox" || value == "sor_prox" || value == "sorprox") return ContactSolverType::SorProx;
     throw std::runtime_error("unknown solver type: " + text);
 }
 
@@ -429,7 +422,13 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.stop.settleLinearSpeed = parse_number<Real>(require_attr(*stopTag, "settle_linear_speed", "stop"), "settle_linear_speed");
     cfg.stop.settleAngularSpeed = parse_number<Real>(require_attr(*stopTag, "settle_angular_speed", "stop"), "settle_angular_speed");
 
-    cfg.solver.type = parse_solver_type(require_attr(*solverTag, "type", "solver"));
+    const std::string solverTypeText = optional_attr(*solverTag, "type")
+        .value_or(optional_attr(*solverTag, "method")
+            .value_or(std::string()));
+    if (solverTypeText.empty()) {
+        throw std::runtime_error("missing attribute 'type' or 'method' on <solver/> tag");
+    }
+    cfg.solver.type = parse_solver_type(solverTypeText);
     cfg.solver.alpha = parse_number<Real>(require_attr(*solverTag, "alpha", "solver"), "solver alpha");
     cfg.solver.atol = parse_number<Real>(require_attr(*solverTag, "atol", "solver"), "solver atol");
     cfg.solver.rtol = parse_number<Real>(require_attr(*solverTag, "rtol", "solver"), "solver rtol");

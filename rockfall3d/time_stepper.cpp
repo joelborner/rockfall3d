@@ -36,7 +36,7 @@ static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
 // The scheme follows the same high-level structure throughout:
 // 1. build midpoint state qM
 // 2. query gap at the midpoint
-// 3. solve contact impulses with JOR-prox if needed
+// 3. solve contact impulses with the configured prox solver if needed
 // 4. advance to the end state
 // 5. accept, record, and continue with the next fixed step
 TimeStepperRunSummary run_core(const TimeStepper& stepper,
@@ -160,13 +160,24 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
                 workspace.solver.PTsub(j, 1) = PT(v, 1);
             }
 
-            const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
-                mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
-            if (!solve.converged) {
+            bool converged = false;
+            if (stepper.solverType == ContactSolverType::SorProx) {
+                const SorProjectResult solve = sor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+                    mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+                converged = solve.converged;
+                uE = solve.velocity;
+            }
+            else {
+                const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+                    mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+                converged = solve.converged;
+                uE = solve.velocity;
+            }
+
+            if (!converged) {
                 summary.stopReason = TimeStepperStopReason::SolverNonConvergence;
                 break;
             }
-            uE = solve.velocity;
 
             for (Eigen::Index j = 0; j < nC; ++j) {
                 const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));

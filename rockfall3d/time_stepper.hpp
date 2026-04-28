@@ -4,10 +4,18 @@
 #include "terrain.hpp"
 #include "contact_wmat.hpp"
 #include "jor_solver.hpp"
+#include "sor_solver.hpp"
 
 #include <optional>
 
 class TrajectoryRecorder;
+
+// Contact solver variants available in the fixed-step midpoint loop.
+enum class ContactSolverType : std::uint8_t
+{
+    JorProx,
+    SorProx
+};
 
 // Reasons why a trajectory stopped. These values are propagated to
 // manifest.csv and therefore form part of the public run contract.
@@ -79,7 +87,8 @@ struct TimeStepperWorkspace
 class TimeStepper
 {
 public:
-    // Parameters of the JOR-Prox contact solver
+    // Contact solver variant and shared scalar iteration parameters.
+    ContactSolverType solverType = ContactSolverType::JorProx;
     Real alpha = Real(0.5);
     Real atol = Real(1e-8);
     Real rtol = Real(1e-6);

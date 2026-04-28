@@ -8,19 +8,18 @@ The public-facing workflow is XML-driven:
 - choose one or more rock point clouds
 - choose release points
 - optionally define roughness
-- run trajectories in parallel
+- choose solver (JOR-prox, SOR-prox)
+- choose number of parallel threads
 - write trajectories in text or binary form
-
-This README describes the intended public release surface.
 
 ## Features
 
 - DEM-based terrain interaction with bilinear interpolation
 - rigid-body dynamics with quaternion orientation
-- JOR-prox contact solve for terrain interaction
-- roughness on top of coarser DEMs
+- JOR/SOR-prox contact solve for terrain interaction
+- roughness model
 - deterministic orientation and roughness seeds
-- shared-memory parallel execution
+- shared-memory, thread-based parallel execution
 - text or binary trajectory output
 - optional terrain export and debugging options
 
@@ -205,11 +204,11 @@ Required attributes:
 
 | Attribute | Meaning |
 |---|---|
-| `type` | Solver type. Current public option: `jor-prox` |
-| `alpha` | Relaxation parameter |
+| `type` | Solver type. Current options: `jor-prox`, `sor-prox` |
+| `alpha` | Relaxation parameter `0 < alpha < 2` |
 | `atol` | Absolute tolerance |
 | `rtol` | Relative tolerance |
-| `maxiter` | Maximum JOR iterations per contact solve |
+| `maxiter` | Maximum iterations per contact solve |
 
 ### `<roughness/>`
 
@@ -227,7 +226,7 @@ Optional attributes:
 
 | Attribute | Default if omitted | Meaning |
 |---|---|---|
-| `step_func` | `smoothstep` | Interpolation kernel used in the roughness model |
+| `step_func` | `smoothstep` | Interpolation method used in the roughness model. Current options: `linear`, `smoothstep`, `smootherstep` |
 
 ### `<output/>`
 

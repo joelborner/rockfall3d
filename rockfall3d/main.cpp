@@ -297,6 +297,7 @@ Eigen::Matrix<Real, 7, 1> make_initial_pose(const Terrain& dem,
 TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
 {
     TimeStepper step;
+    step.solverType = cfg.solver.type;
     step.alpha = cfg.solver.alpha;
     step.atol = cfg.solver.atol;
     step.rtol = cfg.solver.rtol;
@@ -356,10 +357,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
         fs::create_directories(cfg.terrainExportPath->parent_path());
         export_sampled_terrain_asc(dem, cfg.terrainExportPath->string(), *cfg.terrainExportResolution);
         std::cout << "Exported terrain raster to " << cfg.terrainExportPath->string() << "\n";
-    }
-
-    if (cfg.solver.type != SolverType::JorProx) {
-        throw std::runtime_error("solver type SOR-Prox is declared in the config but not implemented yet");
     }
 
     // read rock PTS files

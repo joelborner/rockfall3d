@@ -68,6 +68,9 @@
     <ClInclude Include="roughness.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="sor_solver.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="trajectory_io.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
