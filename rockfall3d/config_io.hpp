@@ -56,6 +56,8 @@ struct BatchSimulationConfig
     std::optional<fs::path> terrainExportPath;
     std::optional<Real> terrainExportResolution;
     bool writeTimingReport{ false };
+    bool rasterOutputEnabled{ false };
+    Real rasterResolution{ Real(2.0) };
 
     std::vector<fs::path> rockPaths;
     std::vector<StartPoint> startPoints;
@@ -398,6 +400,7 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto solverTag = find_tag_attributes(xml, "solver");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
     const auto outputTag = find_tag_attributes(xml, "output");
+    const auto rasterTag = find_tag_attributes(xml, "raster");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
     if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag) {
@@ -468,8 +471,16 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     }
 
     if (outputTag) {
+        cfg.output.enabled = true;
         cfg.output.format = parse_output_format(require_attr(*outputTag, "format", "output"));
         cfg.output.fields = parse_output_fields(require_attr(*outputTag, "variables", "output"));
+    }
+    else if (!rasterTag) {
+        cfg.output.enabled = true;
+    }
+
+    if (rasterTag) {
+        cfg.rasterOutputEnabled = true;
     }
 
     if (debugTag) {

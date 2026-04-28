@@ -154,6 +154,7 @@
     <ClInclude Include="terrain_export.hpp" />
     <ClInclude Include="terrain_io.hpp" />
     <ClInclude Include="roughness.hpp" />
+    <ClInclude Include="raster_output.hpp" />
     <ClInclude Include="sor_solver.hpp" />
     <ClInclude Include="trajectory_format.hpp" />
     <ClInclude Include="trajectory_io.hpp" />

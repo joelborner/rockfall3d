@@ -117,6 +117,10 @@ inline Terrain load_tif(const std::string& path)
     dem.cell = static_cast<Real>(std::abs(gt[1]));
     dem.invCell = Real(1) / dem.cell;
     dem.nx = nx; dem.ny = ny; dem.z = std::move(z);
+    const char* projection = GDALGetProjectionRef(ds);
+    if (projection != nullptr) {
+        dem.projectionWkt = projection;
+    }
 
     dem.xll = east_rev ? static_cast<Real>(gt[0] + (nx - 1) * gt[1])
         : static_cast<Real>(gt[0]);

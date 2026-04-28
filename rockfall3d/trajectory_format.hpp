@@ -52,6 +52,7 @@ struct OutputFieldDescriptor
 
 struct OutputSettings
 {
+    bool enabled{ false };
     OutputFormat format{ OutputFormat::LegacyText };
     std::vector<OutputFieldId> fields;
 };

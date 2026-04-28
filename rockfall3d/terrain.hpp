@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <string>
 #include <vector>
 
 class Rock;
@@ -105,6 +106,7 @@ public:
     Real          xll{}, yll{}, cell{};
     Real          xmax{}, ymax{}, invCell{};
     std::uint32_t nx{}, ny{};
+    std::string   projectionWkt;
     MatX          z;
     MatX          gradx;
     MatX          grady;
