@@ -38,18 +38,24 @@ struct ContactSolverWorkspace
     }
 };
 
+struct JorProjectResult
+{
+    Vec6 velocity = Vec6::Zero();
+    bool converged{ true };
+};
+
 /* -------------------------------------------------------------------------
    Jacobi over-relaxation prox solver using caller-owned scratch storage.
    Inputs : WN, WT1, WT2 already filled in workspace, nN active contacts.
 --------------------------------------------------------------------------- */
-inline Vec6 jor_project(ContactSolverWorkspace& ws,
+inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     std::size_t nN,
     const Mat6& MM_inv, const Vec6& rhs, const Vec6& uA,
     Real mu, Real alpha,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
     if (nN == 0) {
-        return uA + MM_inv * rhs;
+        return { uA + MM_inv * rhs, true };
     }
 
     const Eigen::Index nNI = static_cast<Eigen::Index>(nN);
@@ -87,6 +93,7 @@ inline Vec6 jor_project(ContactSolverWorkspace& ws,
     const Vec6 base = uA + MM_inv * rhs;
 
     Vec6 uE = base;
+    bool converged = false;
     for (std::uint32_t it = 0; it < maxiter; ++it)
     {
         // Evaluate the current generalized velocity using the latest impulse
@@ -142,9 +149,10 @@ inline Vec6 jor_project(ContactSolverWorkspace& ws,
         const Real delta = std::sqrt(deltaPN2) + std::sqrt(deltaPT2);
         const Real scale = std::sqrt(scalePN2) + std::sqrt(scalePT2);
         if (delta <= atol + rtol * scale) {
+            converged = true;
             break;
         }
     }
 
-    return uE;
+    return { uE, converged };
 }

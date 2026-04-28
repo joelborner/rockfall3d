@@ -19,7 +19,8 @@ enum class TimeStepperStopReason : std::uint8_t
     NoData = 3,
     MaxTime = 4,
     MaxSteps = 5,
-    InvalidInput = 6
+    InvalidInput = 6,
+    SolverNonConvergence = 7
 };
 
 inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
@@ -31,6 +32,7 @@ inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
     case TimeStepperStopReason::MaxTime: return "max_time";
     case TimeStepperStopReason::MaxSteps: return "max_steps";
     case TimeStepperStopReason::InvalidInput: return "invalid_input";
+    case TimeStepperStopReason::SolverNonConvergence: return "solver_nonconvergence";
     default: return "unknown";
     }
 }

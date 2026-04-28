@@ -54,6 +54,11 @@ std::string output_format_name(OutputFormat format)
     return "unknown";
 }
 
+const char* run_status_name(bool failed) noexcept
+{
+    return failed ? "FAILED" : "COMPLETED";
+}
+
 // maps a caught C++ exception to the string we want to write into the simulation report as stop criterion
 std::string stop_reason_from_exception(const std::exception& e)
 {
@@ -181,6 +186,7 @@ void write_timing_report(const fs::path& path,
     std::uint32_t threadCount,
     std::size_t totalRuns,
     std::size_t completedRuns,
+    std::size_t failedRuns,
     std::size_t skippedRuns,
     double setupSeconds,
     double simulationSeconds,
@@ -197,6 +203,7 @@ void write_timing_report(const fs::path& path,
     out << "threads=" << threadCount << '\n';
     out << "total_runs=" << totalRuns << '\n';
     out << "completed_runs=" << completedRuns << '\n';
+    out << "failed_runs=" << failedRuns << '\n';
     out << "skipped_runs=" << skippedRuns << '\n';
     out << "setup_seconds=" << setupSeconds << '\n';
     out << "simulation_seconds=" << simulationSeconds << '\n';
@@ -374,6 +381,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     std::atomic<std::size_t> nextJob{ 0 };
     std::atomic<std::size_t> finishedJobs{ 0 };
     std::atomic<std::size_t> completedJobs{ 0 };
+    std::atomic<std::size_t> failedJobs{ 0 };
     std::atomic<std::size_t> skippedJobs{ 0 };
     std::atomic<bool> progressDone{ false };
     const Real dumpStep = cfg.dumpStep.value_or(cfg.dt);
@@ -463,6 +471,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 std::uint64_t byteOffset = 0;
                 TimeStepperRunSummary recordedSummary;
                 bool hasRecordedSummary = false;
+                TimeStepperStopReason finalStopReason = TimeStepperStopReason::Unknown;
+                std::size_t acceptedStepCount = 0;
                 std::string stopCriterion = "unknown";
 
                 if (cfg.output.format == OutputFormat::BinarySharded) {
@@ -491,6 +501,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         *binaryRecorder,
                         cfg.stop);
                     hasRecordedSummary = true;
+                    finalStopReason = recordedSummary.stopReason;
+                    acceptedStepCount = recordedSummary.acceptedSteps;
                     stopCriterion = stop_reason_name(recordedSummary.stopReason);
                 }
                 else {
@@ -498,6 +510,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     // trajectory in memory first, then writes it afterward.
                     const fs::path trajectoryPath = cfg.outputDir / (caseName + ".txt");
                     TimeStepperResult result = step.run(cfg.mu, dem, runRock, cfg.dt, workspace, cfg.stop);
+                    finalStopReason = result.stopReason;
+                    acceptedStepCount = result.t.empty() ? 0 : (result.t.size() - 1);
                     writtenSamples = write_trajectory_txt(
                         trajectoryPath.string(),
                         result,
@@ -523,6 +537,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     byteOffset = location.byteOffset;
                 }
 
+                const bool failed = (finalStopReason == TimeStepperStopReason::SolverNonConvergence);
+
                 // write trajectory report
                 std::ostringstream line;
                 line << (job.runIndex + 1) << ','
@@ -532,7 +548,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << startPoint.x() << ',' << startPoint.y() << ',' << startPoint.z() << ','
                     << (job.orientationIndex + 1) << ','
                     << csv_quoted(caseName) << ','
-                    << "COMPLETED" << ','
+                    << run_status_name(failed) << ','
                     << csv_quoted(stopCriterion) << ','
                     << csv_quoted(output_format_name(cfg.output.format)) << ','
                     << csv_quoted(trajectoryStorage) << ','
@@ -541,7 +557,20 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << writtenSamples;
                 manifestLines[job.runIndex] = line.str();
                 finishedJobs.fetch_add(1);
-                completedJobs.fetch_add(1);
+                if (failed) {
+                    failedJobs.fetch_add(1);
+                }
+                else {
+                    completedJobs.fetch_add(1);
+                }
+
+                if (failed) {
+                    std::lock_guard<std::mutex> lock(coutMutex);
+                    std::cout << "Warning: solver did not converge for " << caseName
+                        << " on thread " << (threadIndex + 1)
+                        << "; trajectory marked FAILED after "
+                        << acceptedStepCount << " accepted steps.\n";
+                }
             }
             catch (const std::exception& e) {
                 if (binaryRecorder) {
@@ -644,6 +673,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
             threadCount,
             totalRuns,
             completedJobs.load(),
+            failedJobs.load(),
             skippedJobs.load(),
             setupSeconds,
             simulationSeconds,

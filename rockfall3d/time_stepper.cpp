@@ -160,8 +160,13 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
                 workspace.solver.PTsub(j, 1) = PT(v, 1);
             }
 
-            uE = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+            const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
                 mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+            if (!solve.converged) {
+                summary.stopReason = TimeStepperStopReason::SolverNonConvergence;
+                break;
+            }
+            uE = solve.velocity;
 
             for (Eigen::Index j = 0; j < nC; ++j) {
                 const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
@@ -174,6 +179,10 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             uE = uA + MM_inv * rhs;
             PN.setZero();
             PT.setZero();
+        }
+
+        if (summary.stopReason == TimeStepperStopReason::SolverNonConvergence) {
+            break;
         }
 
         // Trapezoidal-style state update using midpoint kinematics and the

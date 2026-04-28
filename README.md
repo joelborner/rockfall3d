@@ -1,6 +1,6 @@
 # rockfall3d
 
-`rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs, with optional sub-grid roughness modeling.
+`rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs with roughness.
 
 The public-facing workflow is XML-driven:
 
@@ -8,7 +8,7 @@ The public-facing workflow is XML-driven:
 - choose one or more rock point clouds
 - choose release points
 - optionally define roughness
-- run many randomized orientations in parallel
+- run trajectories in parallel
 - write trajectories in text or binary form
 
 This README describes the intended public release surface.
@@ -21,8 +21,8 @@ This README describes the intended public release surface.
 - roughness on top of coarser DEMs
 - deterministic orientation and roughness seeds
 - shared-memory parallel execution
-- legacy text or binary-sharded trajectory output
-- optional terrain export and timing report for debugging
+- text or binary trajectory output
+- optional terrain export and debugging options
 
 ## Repository Layout
 
