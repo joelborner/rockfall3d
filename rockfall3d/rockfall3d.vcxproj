@@ -145,6 +145,7 @@
   <ItemGroup>
     <ClInclude Include="config_io.hpp" />
     <ClInclude Include="contact_wmat.hpp" />
+    <ClInclude Include="deposition_output.hpp" />
     <ClInclude Include="fast_io.hpp" />
     <ClInclude Include="jor_solver.hpp" />
     <ClInclude Include="math_alias.hpp" />

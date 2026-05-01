@@ -1,4 +1,5 @@
 #include "config_io.hpp"
+#include "deposition_output.hpp"
 #include "fast_io.hpp"
 #include "raster_output.hpp"
 #include "rock.hpp"
@@ -328,6 +329,30 @@ private:
     TrajectoryRecorder& secondary_;
 };
 
+class NullRecorder final : public TrajectoryRecorder
+{
+public:
+    void beginTrajectory(const TrajectoryMetadata&,
+        const Rock&,
+        const RecordedStepData&) override
+    {
+    }
+
+    void onAcceptedStep(const RecordedStepData&) override
+    {
+    }
+
+    RecordedTrajectoryLocation endTrajectory(const RecordedStepData&,
+        double) override
+    {
+        return RecordedTrajectoryLocation{};
+    }
+
+    void abortActiveTrajectory() noexcept override
+    {
+    }
+};
+
 // Build the initial pose either from an absolute XYZ release point or from an
 // X/Y location plus a dz clearance above the terrain after orientation.
 InitialPoseResult make_initial_pose(const Terrain& dem,
@@ -450,6 +475,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
         : std::nullopt;
     std::vector<std::string> manifestLines(totalRuns);
     std::vector<MemoryRasterWorkerResult> rasterBuffers(threadCount);
+    std::vector<DepositionPointRecord> depositionRecords(totalRuns);
     std::atomic<std::size_t> nextJob{ 0 };
     std::atomic<std::size_t> finishedJobs{ 0 };
     std::atomic<std::size_t> completedJobs{ 0 };
@@ -518,6 +544,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
         if (cfg.rasterOutput.has_value()) {
             rasterRecorder = std::make_unique<MemoryRasterRecorder>(*rasterGrid, *cfg.rasterOutput, dumpStep);
         }
+        NullRecorder nullRecorder;
 
         while (true) {
             // automatically pull available job
@@ -636,6 +663,20 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     acceptedStepCount = recordedSummary.acceptedSteps;
                     stopCriterion = stop_reason_name(recordedSummary.stopReason);
                 }
+                else if (cfg.depositionPointOutput.has_value()) {
+                    recordedSummary = step.runRecorded(
+                        cfg.mu,
+                        dem,
+                        runRock,
+                        cfg.dt,
+                        workspace,
+                        nullRecorder,
+                        cfg.stop);
+                    hasRecordedSummary = true;
+                    finalStopReason = recordedSummary.stopReason;
+                    acceptedStepCount = recordedSummary.acceptedSteps;
+                    stopCriterion = stop_reason_name(recordedSummary.stopReason);
+                }
                 const auto t1 = std::chrono::high_resolution_clock::now();
                 const double simSeconds = std::chrono::duration<double>(t1 - t0).count();
 
@@ -667,6 +708,25 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 }
 
                 const bool failed = (finalStopReason == TimeStepperStopReason::SolverNonConvergence);
+
+                if (hasRecordedSummary && cfg.depositionPointOutput.has_value() && manifestStartZ.has_value()) {
+                    depositionRecords[job.runIndex] = DepositionPointRecord{
+                        true,
+                        job.runIndex,
+                        job.rockIndex,
+                        rockPath.string(),
+                        job.startIndex,
+                        job.orientationIndex,
+                        startPoint.x,
+                        startPoint.y,
+                        *manifestStartZ,
+                        recordedSummary.qFinal(0),
+                        recordedSummary.qFinal(1),
+                        recordedSummary.qFinal(2),
+                        run_status_name(failed),
+                        stopCriterion
+                    };
+                }
 
                 // write trajectory report
                 std::ostringstream line;
@@ -800,8 +860,16 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     }
     const auto rasterPhaseEnd = std::chrono::high_resolution_clock::now();
 
-    // write simulation report
     const auto manifestPhaseStart = rasterPhaseEnd;
+    if (cfg.depositionPointOutput.has_value()) {
+        write_deposition_points_shapefile(
+            cfg.outputDir,
+            *cfg.depositionPointOutput,
+            dem.projectionWkt,
+            depositionRecords);
+    }
+
+    // write simulation report
     std::ofstream manifest((cfg.outputDir / "manifest.csv").string());
     if (!manifest) {
         throw std::runtime_error("cannot open manifest.csv in output directory");

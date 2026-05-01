@@ -237,6 +237,7 @@ If present:
 
 - it may contain at most one `<trajectory .../>`
 - it may contain one or several `<raster .../>`
+- it may contain at most one `<shape .../>`
 
 #### `<trajectory/>`
 
@@ -272,24 +273,35 @@ Notes:
 
 - all `<raster .../>` tags inside one `<output>` block must currently use the same `resolution`
 
+#### `<shape/>`
+
+This child tag is optional.
+
+Required attributes:
+
+| Attribute | Meaning |
+|---|---|
+| `metric` | Shape output type. Current option: `deposition` |
+
 Valid metric names / aliases:
 
-| Variable | Meaning | Trajectory | Raster |
-|---|---|---|---|
-| `t` | time [s] | X |  |
-| `x` | X coordinate [m] | X | X |
-| `y` | Y coordinate [m] | X | X |
-| `z` | Z coordinate [m] | X | X |
-| `quat` | Orientation (Quaternion) | X |  |
-| `vx,vy,vz` | Translational velocities [m/s] | X | X |
-| `vtot` | Resultant translational velocity [m/s] | X | X |
-| `wx,wy,wz` | Rotational velocities [rad/s] | X | X |
-| `wtot` | Resultant rotational velocity [rad/s] | X | X |
-| `ekin_trans` | Kinetic translational energy [J] | X | X |
-| `ekin_rot` | Kinetic rotational energy [J] | X | X |
-| `ekin_tot` | Kinetic energy [J] | X | X |
-| `jumpH` | Jump height [m] | X | X |
-| `count` | Number of contributing trajectories per raster cell |  | X |
+| Variable | Meaning | Trajectory | Raster | Shape |
+|---|---|---|---|---|
+| `t` | time [s] | X |  |  |
+| `x` | X coordinate [m] | X | X |  |
+| `y` | Y coordinate [m] | X | X |  |
+| `z` | Z coordinate [m] | X | X |  |
+| `quat` | Orientation (Quaternion) | X |  |  |
+| `vx,vy,vz` | Translational velocities [m/s] | X | X |  |
+| `vtot` | Resultant translational velocity [m/s] | X | X |  |
+| `wx,wy,wz` | Rotational velocities [rad/s] | X | X |  |
+| `wtot` | Resultant rotational velocity [rad/s] | X | X |  |
+| `ekin_trans` | Kinetic translational energy [J] | X | X |  |
+| `ekin_rot` | Kinetic rotational energy [J] | X | X |  |
+| `ekin_tot` | Kinetic energy [J] | X | X |  |
+| `jumpH` | Jump height [m] | X | X |  |
+| `count` | Number of contributing trajectories per raster cell |  | X |  |
+| `deposition` | Final accepted deposition point per trajectory |  |  | X |
 
 ### `<debug/>`
 
@@ -365,6 +377,7 @@ Notes:
   <raster
       metric="count"
       resolution="2.0"/>
+  <shape metric="deposition"/>
 </output>
 
 <debug
@@ -395,6 +408,25 @@ Examples:
 - `q95_ekin_tot.tif`
 - `q95_jump_h.tif`
 - `count_rocks.tif`
+
+### Deposition points
+
+If `<shape metric="deposition" .../>` is given inside `<output>`, the simulator writes one point shapefile, for example:
+
+- `deposition_points.shp`
+
+Each point stores the final accepted trajectory coordinate as 3D point geometry and writes the following attributes into the DBF:
+
+- `run_idx`
+- `rock_idx`
+- `rock_path`
+- `start_idx`
+- `orient_idx`
+- `start_x`
+- `start_y`
+- `start_z`
+- `status`
+- `stop_crit`
 
 ### Timing report
 

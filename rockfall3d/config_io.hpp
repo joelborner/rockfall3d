@@ -1,4 +1,5 @@
 #pragma once
+#include "deposition_output.hpp"
 #include "math_alias.hpp"
 #include "raster_output.hpp"
 #include "terrain.hpp"
@@ -58,6 +59,7 @@ struct BatchSimulationConfig
     std::optional<Real> terrainExportResolution;
     bool writeTimingReport{ false };
     std::optional<RasterOutputConfig> rasterOutput;
+    std::optional<DepositionPointOutputConfig> depositionPointOutput;
 
     std::vector<fs::path> rockPaths;
     std::vector<StartPoint> startPoints;
@@ -452,12 +454,16 @@ inline void parse_output_block(const XmlTagBlock& outputBlock,
 {
     const auto trajectoryTags = find_all_tag_attributes(outputBlock.innerXml, "trajectory");
     const auto rasterTags = find_all_tag_attributes(outputBlock.innerXml, "raster");
+    const auto shapeTags = find_all_tag_attributes(outputBlock.innerXml, "shape");
 
     if (trajectoryTags.size() > 1) {
         throw std::runtime_error("<output> may contain at most one <trajectory/> tag");
     }
-    if (trajectoryTags.empty() && rasterTags.empty()) {
-        throw std::runtime_error("<output> must contain at least one <trajectory/> or <raster/> tag");
+    if (shapeTags.size() > 1) {
+        throw std::runtime_error("<output> may contain at most one <shape/> tag");
+    }
+    if (trajectoryTags.empty() && rasterTags.empty() && shapeTags.empty()) {
+        throw std::runtime_error("<output> must contain at least one <trajectory/>, <raster/>, or <shape/> tag");
     }
 
     if (!trajectoryTags.empty()) {
@@ -486,6 +492,23 @@ inline void parse_output_block(const XmlTagBlock& outputBlock,
             rasterCfg.layers.push_back(parse_raster_layer_config(rasterTag));
         }
         cfg.rasterOutput = std::move(rasterCfg);
+    }
+
+    if (!shapeTags.empty()) {
+        const auto& shapeTag = shapeTags.front();
+        const std::string metric = to_lower_copy(trim_copy(require_attr(shapeTag, "metric", "shape")));
+        if (metric != "deposition") {
+            throw std::runtime_error("<shape/> currently only supports metric=\"deposition\"");
+        }
+
+        DepositionPointOutputConfig depositionCfg;
+        if (const auto stemAttr = optional_attr(shapeTag, "name")) {
+            const std::string stem = trim_copy(*stemAttr);
+            if (!stem.empty()) {
+                depositionCfg.outputStem = stem;
+            }
+        }
+        cfg.depositionPointOutput = std::move(depositionCfg);
     }
 }
 

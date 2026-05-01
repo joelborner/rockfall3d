@@ -44,6 +44,9 @@
     <ClInclude Include="contact_wmat.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="deposition_output.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="terrain.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
