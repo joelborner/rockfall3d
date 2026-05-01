@@ -1,5 +1,6 @@
 #pragma once
 #include "math_alias.hpp"
+#include "raster_output.hpp"
 #include "terrain.hpp"
 #include "time_stepper.hpp"
 #include "trajectory_format.hpp"
@@ -56,8 +57,7 @@ struct BatchSimulationConfig
     std::optional<fs::path> terrainExportPath;
     std::optional<Real> terrainExportResolution;
     bool writeTimingReport{ false };
-    bool rasterOutputEnabled{ false };
-    Real rasterResolution{ Real(2.0) };
+    std::optional<RasterOutputConfig> rasterOutput;
 
     std::vector<fs::path> rockPaths;
     std::vector<StartPoint> startPoints;
@@ -158,6 +158,52 @@ inline std::optional<std::unordered_map<std::string, std::string>> find_tag_attr
         attrs[to_lower_copy((*it)[1].str())] = (*it)[2].str();
     }
     return attrs;
+}
+
+struct XmlTagBlock
+{
+    std::unordered_map<std::string, std::string> attrs;
+    std::string innerXml;
+};
+
+inline std::optional<XmlTagBlock> find_tag_block(const std::string& xml,
+    const std::string& tag)
+{
+    const std::regex tagExpr("<\\s*" + tag + R"(\b([^>]*)>([\s\S]*?)<\s*/\s*)" + tag + R"(\s*>)",
+        std::regex::icase);
+    std::smatch tagMatch;
+    if (!std::regex_search(xml, tagMatch, tagExpr)) {
+        return std::nullopt;
+    }
+
+    XmlTagBlock block;
+    block.innerXml = tagMatch[2].str();
+
+    const std::regex attrExpr("([A-Za-z0-9_:\\-]+)\\s*=\\s*\"([^\"]*)\"");
+    const std::string attrText = tagMatch[1].str();
+    for (std::sregex_iterator it(attrText.begin(), attrText.end(), attrExpr), end; it != end; ++it) {
+        block.attrs[to_lower_copy((*it)[1].str())] = (*it)[2].str();
+    }
+    return block;
+}
+
+inline std::vector<std::unordered_map<std::string, std::string>> find_all_tag_attributes(
+    const std::string& xml,
+    const std::string& tag)
+{
+    const std::regex tagExpr("<\\s*" + tag + R"(\b([^>]*)/\s*>)", std::regex::icase);
+    const std::regex attrExpr("([A-Za-z0-9_:\\-]+)\\s*=\\s*\"([^\"]*)\"");
+    std::vector<std::unordered_map<std::string, std::string>> tags;
+
+    for (std::sregex_iterator tagIt(xml.begin(), xml.end(), tagExpr), end; tagIt != end; ++tagIt) {
+        std::unordered_map<std::string, std::string> attrs;
+        const std::string attrText = (*tagIt)[1].str();
+        for (std::sregex_iterator attrIt(attrText.begin(), attrText.end(), attrExpr), attrEnd; attrIt != attrEnd; ++attrIt) {
+            attrs[to_lower_copy((*attrIt)[1].str())] = (*attrIt)[2].str();
+        }
+        tags.push_back(std::move(attrs));
+    }
+    return tags;
 }
 
 // fetches required attribute from a parsed XML tag
@@ -304,6 +350,125 @@ inline std::vector<OutputFieldId> parse_output_fields(const std::string& text)
     return fields;
 }
 
+inline RasterMetric parse_raster_metric(const std::string& text)
+{
+    const std::string value = to_lower_copy(trim_copy(text));
+    if (value == "x") return RasterMetric::X;
+    if (value == "y") return RasterMetric::Y;
+    if (value == "z") return RasterMetric::Z;
+    if (value == "vx") return RasterMetric::Vx;
+    if (value == "vy") return RasterMetric::Vy;
+    if (value == "vz") return RasterMetric::Vz;
+    if (value == "vtot") return RasterMetric::Vtot;
+    if (value == "wx") return RasterMetric::Wx;
+    if (value == "wy") return RasterMetric::Wy;
+    if (value == "wz") return RasterMetric::Wz;
+    if (value == "wtot") return RasterMetric::Wtot;
+    if (value == "ekin_trans" || value == "ekintrans") return RasterMetric::EkinTrans;
+    if (value == "ekin_rot" || value == "ekinrot") return RasterMetric::EkinRot;
+    if (value == "ekin_tot" || value == "ekin" || value == "ekintot") return RasterMetric::EkinTot;
+    if (value == "jumph" || value == "jump_h") return RasterMetric::JumpH;
+    throw std::runtime_error("unknown raster metric: " + text);
+}
+
+inline RasterStatistic parse_raster_statistic(const std::string& text)
+{
+    const std::string value = to_lower_copy(trim_copy(text));
+    if (value == "count") return RasterStatistic::Count;
+    if (value == "min") return RasterStatistic::Min;
+    if (value == "max") return RasterStatistic::Max;
+    if (value == "sum") return RasterStatistic::Sum;
+    if (value == "mean") return RasterStatistic::Mean;
+    if (value == "median") return RasterStatistic::Median;
+    if (value == "percentile") return RasterStatistic::Percentile;
+    throw std::runtime_error("unknown raster statistic: " + text);
+}
+
+inline RasterLayerSpec parse_raster_layer_config(
+    const std::unordered_map<std::string, std::string>& rasterTag)
+{
+    RasterLayerSpec layer;
+    const std::string metricText = require_attr(rasterTag, "metric", "raster");
+    const std::string metricKey = to_lower_copy(trim_copy(metricText));
+
+    if (metricKey == "count") {
+        layer.statistic = RasterStatistic::Count;
+        layer.metric = RasterMetric::None;
+
+        if (const auto statisticAttr = optional_attr(rasterTag, "statistic")) {
+            const RasterStatistic parsed = parse_raster_statistic(*statisticAttr);
+            if (parsed != RasterStatistic::Count) {
+                throw std::runtime_error("<raster metric=\"count\"/> must not define a statistic other than count");
+            }
+        }
+    }
+    else {
+        layer.metric = parse_raster_metric(metricText);
+        layer.statistic = parse_raster_statistic(require_attr(rasterTag, "statistic", "raster"));
+
+        if (layer.statistic == RasterStatistic::Percentile) {
+            const std::string pText = optional_attr(rasterTag, "p")
+                .value_or(optional_attr(rasterTag, "percentile")
+                    .value_or(std::string()));
+            if (pText.empty()) {
+                throw std::runtime_error("<raster statistic=\"percentile\"/> requires p=\"...\"");
+            }
+            layer.percentile = parse_number<Real>(pText, "raster percentile");
+            if (!(*layer.percentile > Real(0) && *layer.percentile <= Real(100))) {
+                throw std::runtime_error("raster percentile must be in (0, 100]");
+            }
+        }
+    }
+
+    if (const auto nameAttr = optional_attr(rasterTag, "name")) {
+        layer.outputStem = trim_copy(*nameAttr);
+    }
+
+    return layer;
+}
+
+inline void parse_output_block(const XmlTagBlock& outputBlock,
+    BatchSimulationConfig& cfg)
+{
+    const auto trajectoryTags = find_all_tag_attributes(outputBlock.innerXml, "trajectory");
+    const auto rasterTags = find_all_tag_attributes(outputBlock.innerXml, "raster");
+
+    if (trajectoryTags.size() > 1) {
+        throw std::runtime_error("<output> may contain at most one <trajectory/> tag");
+    }
+    if (trajectoryTags.empty() && rasterTags.empty()) {
+        throw std::runtime_error("<output> must contain at least one <trajectory/> or <raster/> tag");
+    }
+
+    if (!trajectoryTags.empty()) {
+        const auto& trajectoryTag = trajectoryTags.front();
+        cfg.output.enabled = true;
+        cfg.output.format = parse_output_format(require_attr(trajectoryTag, "format", "trajectory"));
+        cfg.output.fields = parse_output_fields(require_attr(trajectoryTag, "metric", "trajectory"));
+    }
+
+    if (!rasterTags.empty()) {
+        RasterOutputConfig rasterCfg;
+        std::optional<Real> resolution;
+        rasterCfg.layers.reserve(rasterTags.size());
+        for (const auto& rasterTag : rasterTags) {
+            const Real layerResolution = parse_number<Real>(
+                require_attr(rasterTag, "resolution", "raster"),
+                "raster resolution");
+            if (!resolution.has_value()) {
+                resolution = layerResolution;
+                rasterCfg.resolution = layerResolution;
+            }
+            else if (std::abs(layerResolution - *resolution) > Real(1e-12)) {
+                throw std::runtime_error("all <raster/> tags inside <output> must use the same resolution");
+            }
+
+            rasterCfg.layers.push_back(parse_raster_layer_config(rasterTag));
+        }
+        cfg.rasterOutput = std::move(rasterCfg);
+    }
+}
+
 inline std::vector<std::string> read_nonempty_lines(const fs::path& path)
 {
     std::ifstream in(path);
@@ -399,8 +564,7 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
-    const auto outputTag = find_tag_attributes(xml, "output");
-    const auto rasterTag = find_tag_attributes(xml, "raster");
+    const auto outputTag = find_tag_block(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
     if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag) {
@@ -471,16 +635,10 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     }
 
     if (outputTag) {
-        cfg.output.enabled = true;
-        cfg.output.format = parse_output_format(require_attr(*outputTag, "format", "output"));
-        cfg.output.fields = parse_output_fields(require_attr(*outputTag, "variables", "output"));
+        parse_output_block(*outputTag, cfg);
     }
-    else if (!rasterTag) {
+    else {
         cfg.output.enabled = true;
-    }
-
-    if (rasterTag) {
-        cfg.rasterOutputEnabled = true;
     }
 
     if (debugTag) {

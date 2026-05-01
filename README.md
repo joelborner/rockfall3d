@@ -2,25 +2,22 @@
 
 `rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs with roughness.
 
-The public-facing workflow is XML-driven:
+## Contact
+Joël Borner
 
-- choose a DEM raster
-- choose one or more rock point clouds
-- choose release points
-- optionally define roughness
-- choose solver (JOR-prox, SOR-prox)
-- choose number of parallel threads
-- write trajectories in text or binary form
+WSL Institute for Snow and Avalanche Research SLF
+
+joel.borner@slf.ch
 
 ## Features
 
 - DEM-based terrain interaction with bilinear interpolation
 - rigid-body dynamics with quaternion orientation
-- JOR/SOR-prox contact solve for terrain interaction
-- roughness model
-- deterministic orientation and roughness seeds
+- nonsmooth dynamics with hard contact laws and Coulomb friction. Moreau timestepping scheme and JOR/SOR-prox contact solve for terrain interaction
+- roughness model based on Perlin noise
+- deterministic random orientation and roughness, reproducible with seeds
 - shared-memory, thread-based parallel execution
-- text or binary trajectory output
+- trajectory or raster output
 - optional terrain export and debugging options
 
 ## Repository Layout
@@ -130,7 +127,7 @@ Required tags:
 Optional tags:
 
 - `<roughness/>`
-- `<output/>`
+- `<output>...</output>`
 - `<debug/>`
 
 The top-level `<rockfall3d/>` marker is accepted in sample files, but the parser does not rely on it.
@@ -228,7 +225,7 @@ Optional attributes:
 |---|---|---|
 | `step_func` | `smoothstep` | Interpolation method used in the roughness model. Current options: `linear`, `smoothstep`, `smootherstep` |
 
-### `<output/>`
+### `<output>...</output>`
 
 This tag is optional.
 
@@ -238,30 +235,62 @@ If omitted:
 
 If present:
 
-Required attributes when tag is present:
+- it may contain at most one `<trajectory .../>`
+- it may contain one or several `<raster .../>`
+
+#### `<trajectory/>`
+
+This child tag is optional.
+
+Required attributes:
 
 | Attribute | Meaning |
 |---|---|
 | `format` | Output format: `binary-sharded` or `legacy-text` |
-| `variables` | Comma-separated output variables |
+| `metric` | Comma-separated trajectory metrics |
 
-Valid variable names / aliases:
+#### `<raster/>`
 
-| Variable | Meaning |
+This child tag is optional. Multiple `<raster .../>` tags are allowed.
+
+Required attributes:
+
+| Attribute | Meaning |
 |---|---|
-| `t` | time [s] |
-| `x` | X coordinate [m] |
-| `y` | Y coordinate [m]|
-| `z` | Z coordinate [m]|
-| `quat` | Orientation (Quaternion) |
-| `vx,vy,vz` | Translational velocities [m/s] |
-| `vtot` | Resultant translational velocity [m/s]  |
-| `wx,wy,wz` | Rotational velocities [rad/s]|
-| `wtot` | Resultant rotational velocity [rad/s] |
-| `ekin_trans` | Kinetic translational energy [J] |
-| `ekin_rot` | Kinetic rotational energy [J] |
-| `ekin_tot` | Kinetic energy [J] |
-| `jumpH` | Jump height [m] |
+| `metric` | Raster metric to aggregate. Use `count` for number of rocks |
+| `resolution` | Output raster resolution |
+
+Optional attributes:
+
+| Attribute | Default if omitted | Meaning |
+|---|---|---|
+| `statistic` | required except for `metric="count"` | Raster statistic: `min`, `max`, `sum`, `mean`, `median`, `percentile` |
+| `p` | not used | Percentile value when `statistic="percentile"` |
+| `name` | auto-generated from metric/statistic | Output raster file stem |
+
+Notes:
+
+- all `<raster .../>` tags inside one `<output>` block must currently use the same `resolution`
+- raster output currently supports raster-only runs or raster combined with `binary-sharded` trajectory output
+
+Valid metric names / aliases:
+
+| Variable | Meaning | Trajectory | Raster |
+|---|---|---|---|
+| `t` | time [s] | X |  |
+| `x` | X coordinate [m] | X | X |
+| `y` | Y coordinate [m] | X | X |
+| `z` | Z coordinate [m] | X | X |
+| `quat` | Orientation (Quaternion) | X |  |
+| `vx,vy,vz` | Translational velocities [m/s] | X | X |
+| `vtot` | Resultant translational velocity [m/s] | X | X |
+| `wx,wy,wz` | Rotational velocities [rad/s] | X | X |
+| `wtot` | Resultant rotational velocity [rad/s] | X | X |
+| `ekin_trans` | Kinetic translational energy [J] | X | X |
+| `ekin_rot` | Kinetic rotational energy [J] | X | X |
+| `ekin_tot` | Kinetic energy [J] | X | X |
+| `jumpH` | Jump height [m] | X | X |
+| `count` | Number of contributing trajectories per raster cell |  | X |
 
 ### `<debug/>`
 
@@ -320,9 +349,24 @@ Notes:
     raster="data/roughness_grid_size.tif"
     step_func="smoothstep"/>
 
-<output
-    format="binary-sharded"
-    variables="time,x,y,z,qw,qx,qy,qz,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
+<output>
+  <trajectory
+      format="binary-sharded"
+      metric="t,x,y,z,qw,qx,qy,qz,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
+  <raster
+      metric="ekin_tot"
+      resolution="2.0"
+      statistic="percentile"
+      p="95"/>
+  <raster
+      metric="jumpH"
+      resolution="2.0"
+      statistic="percentile"
+      p="95"/>
+  <raster
+      metric="count"
+      resolution="2.0"/>
+</output>
 
 <debug
     timing_report="true"/>
@@ -332,16 +376,26 @@ Notes:
 
 ### Legacy text output
 
-If no `<output/>` tag is given, the simulator writes legacy text trajectory files and a `manifest.csv`.
+If no `<output>...</output>` tag is given, the simulator writes legacy text trajectory files and a `manifest.csv`.
 
 ### Binary-sharded output
 
-If `<output format="binary-sharded" .../>` is given, the simulator writes:
+If `<output><trajectory format="binary-sharded" .../></output>` is given, the simulator writes:
 
 - `manifest.csv`
 - one binary shard file per worker thread, for example `trajectories_001.rfbin`
 
-The binary layout is schema-driven and depends on the `variables` list in the XML.
+The binary layout is schema-driven and depends on the trajectory `metric` list in the XML.
+
+### Raster output
+
+If one or more `<raster .../>` tags are given inside `<output>`, the simulator writes one GeoTIFF per raster definition.
+
+Examples:
+
+- `q95_ekin_tot.tif`
+- `q95_jump_h.tif`
+- `count_rocks.tif`
 
 ### Timing report
 

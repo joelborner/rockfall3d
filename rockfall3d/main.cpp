@@ -212,7 +212,9 @@ void write_timing_report(const fs::path& path,
     double rasterSeconds,
     double manifestSeconds,
     double totalSeconds,
-    std::uint64_t peakWorkingSetBytes)
+    std::uint64_t peakWorkingSetBytes,
+    std::size_t rasterLayerCount,
+    std::size_t rasterOrderContributionCount)
 {
     std::ofstream out(path.string());
     if (!out) {
@@ -232,6 +234,8 @@ void write_timing_report(const fs::path& path,
     out << "total_seconds=" << totalSeconds << '\n';
     out << "peak_working_set_bytes=" << peakWorkingSetBytes << '\n';
     out << "peak_working_set_gib=" << bytes_to_gib(peakWorkingSetBytes) << '\n';
+    out << "raster_layers=" << rasterLayerCount << '\n';
+    out << "raster_order_contributions=" << rasterOrderContributionCount << '\n';
     if (totalSeconds > 0.0) {
         out << "throughput_trajectories_per_second="
             << (static_cast<double>(completedRuns) / totalSeconds) << '\n';
@@ -409,7 +413,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     if (cfg.output.enabled && cfg.output.format == OutputFormat::LegacyText && !cfg.output.fields.empty()) {
         throw std::runtime_error("variable-selectable output is currently implemented only for format=\"binary-sharded\"");
     }
-    if (cfg.rasterOutputEnabled && cfg.output.enabled && cfg.output.format == OutputFormat::LegacyText) {
+    if (cfg.rasterOutput.has_value() && cfg.output.enabled && cfg.output.format == OutputFormat::LegacyText) {
         throw std::runtime_error("raster output currently supports raster-only runs or raster combined with format=\"binary-sharded\"");
     }
 
@@ -443,9 +447,11 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
 
     const std::vector<SimulationJob> jobs = build_jobs(cfg);
     const std::size_t totalRuns = jobs.size();
-    const RasterGridGeometry rasterGrid = make_raster_grid_geometry(dem, cfg.rasterResolution);
+    const std::optional<RasterGridGeometry> rasterGrid = cfg.rasterOutput.has_value()
+        ? std::optional<RasterGridGeometry>(make_raster_grid_geometry(dem, cfg.rasterOutput->resolution))
+        : std::nullopt;
     std::vector<std::string> manifestLines(totalRuns);
-    std::vector<std::vector<RasterContribution>> rasterBuffers(threadCount);
+    std::vector<MemoryRasterWorkerResult> rasterBuffers(threadCount);
     std::atomic<std::size_t> nextJob{ 0 };
     std::atomic<std::size_t> finishedJobs{ 0 };
     std::atomic<std::size_t> completedJobs{ 0 };
@@ -502,8 +508,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 cfg.output);
         }
         std::unique_ptr<MemoryRasterRecorder> rasterRecorder;
-        if (cfg.rasterOutputEnabled) {
-            rasterRecorder = std::make_unique<MemoryRasterRecorder>(rasterGrid, dumpStep);
+        if (cfg.rasterOutput.has_value()) {
+            rasterRecorder = std::make_unique<MemoryRasterRecorder>(*rasterGrid, *cfg.rasterOutput, dumpStep);
         }
 
         while (true) {
@@ -567,7 +573,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         runRock.u0(),
                         initialPlacement.initialMinGap
                     };
-                    if (cfg.rasterOutputEnabled) {
+                    if (cfg.rasterOutput.has_value()) {
                         CompositeTrajectoryRecorder recorder(*binaryRecorder, *rasterRecorder);
                         recorder.beginTrajectory(meta, runRock, initialStep);
                         recordedSummary = step.runRecorded(
@@ -595,7 +601,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     acceptedStepCount = recordedSummary.acceptedSteps;
                     stopCriterion = stop_reason_name(recordedSummary.stopReason);
                 }
-                else if (cfg.rasterOutputEnabled) {
+                else if (cfg.rasterOutput.has_value()) {
                     const TrajectoryMetadata meta{
                         job.runIndex,
                         job.rockIndex,
@@ -649,7 +655,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         recordedSummary.minGapFinal
                     };
                     if (cfg.output.enabled && cfg.output.format == OutputFormat::BinarySharded) {
-                        if (cfg.rasterOutputEnabled) {
+                        if (cfg.rasterOutput.has_value()) {
                             CompositeTrajectoryRecorder recorder(*binaryRecorder, *rasterRecorder);
                             const RecordedTrajectoryLocation location = recorder.endTrajectory(finalStep, simSeconds);
                             writtenSamples = static_cast<std::size_t>(location.sampleCount);
@@ -663,7 +669,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                             byteOffset = location.byteOffset;
                         }
                     }
-                    else if (cfg.rasterOutputEnabled) {
+                    else if (cfg.rasterOutput.has_value()) {
                         rasterRecorder->endTrajectory(finalStep, simSeconds);
                     }
                 }
@@ -768,7 +774,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
         }
 
         if (rasterRecorder) {
-            rasterBuffers[threadIndex] = rasterRecorder->releaseContributions();
+            rasterBuffers[threadIndex] = rasterRecorder->releaseResult();
         }
     };
 
@@ -792,23 +798,13 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     const auto simulationPhaseEnd = std::chrono::high_resolution_clock::now();
     const auto rasterPhaseStart = simulationPhaseEnd;
 
-    if (cfg.rasterOutputEnabled) {
-        std::size_t totalContributions = 0;
-        for (const auto& buffer : rasterBuffers) {
-            totalContributions += buffer.size();
-        }
-
-        std::vector<RasterContribution> allContributions;
-        allContributions.reserve(totalContributions);
-        for (auto& buffer : rasterBuffers) {
-            allContributions.insert(
-                allContributions.end(),
-                std::make_move_iterator(buffer.begin()),
-                std::make_move_iterator(buffer.end()));
-            buffer.clear();
-            buffer.shrink_to_fit();
-        }
-        build_q95_rasters_from_memory(cfg.outputDir, rasterGrid, std::move(allContributions));
+    RasterBuildSummary rasterSummary;
+    if (cfg.rasterOutput.has_value()) {
+        rasterSummary = build_rasters_from_workers(
+            cfg.outputDir,
+            *cfg.rasterOutput,
+            *rasterGrid,
+            std::move(rasterBuffers));
     }
     const auto rasterPhaseEnd = std::chrono::high_resolution_clock::now();
 
@@ -843,7 +839,9 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
             rasterSeconds,
             manifestSeconds,
             totalSeconds,
-            current_process_peak_working_set_bytes());
+            current_process_peak_working_set_bytes(),
+            rasterSummary.layerCount,
+            rasterSummary.orderContributionCount);
     }
 
     std::cout << "\nCompleted " << totalRuns << " simulations using "

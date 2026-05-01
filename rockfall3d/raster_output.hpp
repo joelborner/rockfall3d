@@ -21,6 +21,98 @@
 
 namespace fs = std::filesystem;
 
+enum class RasterMetric : std::uint8_t
+{
+    None = 0,
+    X,
+    Y,
+    Z,
+    Vx,
+    Vy,
+    Vz,
+    Vtot,
+    Wx,
+    Wy,
+    Wz,
+    Wtot,
+    EkinTrans,
+    EkinRot,
+    EkinTot,
+    JumpH
+};
+
+enum class RasterStatistic : std::uint8_t
+{
+    Count = 0,
+    Min,
+    Max,
+    Sum,
+    Mean,
+    Median,
+    Percentile
+};
+
+inline bool raster_statistic_is_order_based(RasterStatistic statistic) noexcept
+{
+    return statistic == RasterStatistic::Median
+        || statistic == RasterStatistic::Percentile;
+}
+
+inline bool raster_statistic_is_streaming(RasterStatistic statistic) noexcept
+{
+    return !raster_statistic_is_order_based(statistic);
+}
+
+inline std::string raster_metric_name(RasterMetric metric)
+{
+    switch (metric) {
+    case RasterMetric::X: return "x";
+    case RasterMetric::Y: return "y";
+    case RasterMetric::Z: return "z";
+    case RasterMetric::Vx: return "vx";
+    case RasterMetric::Vy: return "vy";
+    case RasterMetric::Vz: return "vz";
+    case RasterMetric::Vtot: return "vtot";
+    case RasterMetric::Wx: return "wx";
+    case RasterMetric::Wy: return "wy";
+    case RasterMetric::Wz: return "wz";
+    case RasterMetric::Wtot: return "wtot";
+    case RasterMetric::EkinTrans: return "ekin_trans";
+    case RasterMetric::EkinRot: return "ekin_rot";
+    case RasterMetric::EkinTot: return "ekin_tot";
+    case RasterMetric::JumpH: return "jump_h";
+    default: return "rocks";
+    }
+}
+
+inline std::string raster_statistic_name(RasterStatistic statistic)
+{
+    switch (statistic) {
+    case RasterStatistic::Count: return "count";
+    case RasterStatistic::Min: return "min";
+    case RasterStatistic::Max: return "max";
+    case RasterStatistic::Sum: return "sum";
+    case RasterStatistic::Mean: return "mean";
+    case RasterStatistic::Median: return "median";
+    case RasterStatistic::Percentile: return "percentile";
+    }
+    return "unknown";
+}
+
+struct RasterLayerSpec
+{
+    RasterMetric metric{ RasterMetric::None };
+    RasterStatistic statistic{ RasterStatistic::Max };
+    std::optional<Real> percentile;
+    std::string outputStem;
+};
+
+struct RasterOutputConfig
+{
+    Real resolution{ Real(2) };
+    std::vector<RasterLayerSpec> layers;
+};
+
 struct RasterGridGeometry
 {
     Real xll{ Real(0) };
@@ -89,30 +181,242 @@ inline std::optional<std::uint32_t> raster_cell_index(const RasterGridGeometry& 
     return row * grid.ncols + col;
 }
 
-struct RasterContribution
+inline std::string default_raster_output_stem(const RasterLayerSpec& layer)
+{
+    if (!layer.outputStem.empty()) {
+        return layer.outputStem;
+    }
+    if (layer.statistic == RasterStatistic::Percentile) {
+        const double p = layer.percentile.has_value() ? static_cast<double>(*layer.percentile) : 0.0;
+        const long long rounded = static_cast<long long>(std::llround(p));
+        return "q" + std::to_string(rounded) + "_" + raster_metric_name(layer.metric);
+    }
+    if (layer.statistic == RasterStatistic::Count && layer.metric == RasterMetric::None) {
+        return "count_rocks";
+    }
+    return raster_statistic_name(layer.statistic) + "_" + raster_metric_name(layer.metric);
+}
+
+inline std::optional<Real> sample_metric_value(RasterMetric metric,
+    const Rock& rock,
+    const RecordedStepData& step)
+{
+    switch (metric) {
+    case RasterMetric::X: return step.q(0);
+    case RasterMetric::Y: return step.q(1);
+    case RasterMetric::Z: return step.q(2);
+    case RasterMetric::Vx: return step.u(0);
+    case RasterMetric::Vy: return step.u(1);
+    case RasterMetric::Vz: return step.u(2);
+    case RasterMetric::Vtot: return step.u.head<3>().norm();
+    case RasterMetric::Wx: return step.u(3);
+    case RasterMetric::Wy: return step.u(4);
+    case RasterMetric::Wz: return step.u(5);
+    case RasterMetric::Wtot: return step.u.tail<3>().norm();
+    case RasterMetric::EkinTrans:
+        return Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm();
+    case RasterMetric::EkinRot:
+        return Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>());
+    case RasterMetric::EkinTot:
+        return Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm()
+            + Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>());
+    case RasterMetric::JumpH:
+        if (step.minGap.has_value()) {
+            return *step.minGap;
+        }
+        return std::nullopt;
+    default:
+        return std::nullopt;
+    }
+}
+
+struct OrderContribution
 {
     std::uint32_t cellIndex{ 0 };
-    float ekinTot{ 0.0f };
-    float jumpH{ 0.0f };
+    float value{ 0.0f };
 };
 
-struct TrajectoryCellAggregate
+class StreamingLayerAccumulator
 {
-    Real maxEkinTot{ -std::numeric_limits<Real>::infinity() };
-    Real maxJumpH{ -std::numeric_limits<Real>::infinity() };
+public:
+    StreamingLayerAccumulator() = default;
+
+    StreamingLayerAccumulator(RasterStatistic statistic,
+        std::size_t cellCount)
+        : statistic_(statistic),
+        count_(cellCount, 0u)
+    {
+        switch (statistic_) {
+        case RasterStatistic::Min:
+            min_.assign(cellCount, std::numeric_limits<float>::infinity());
+            break;
+        case RasterStatistic::Max:
+            max_.assign(cellCount, -std::numeric_limits<float>::infinity());
+            break;
+        case RasterStatistic::Sum:
+        case RasterStatistic::Mean:
+            sum_.assign(cellCount, 0.0);
+            break;
+        case RasterStatistic::Count:
+            break;
+        default:
+            throw std::runtime_error("streaming layer accumulator received non-streaming statistic");
+        }
+    }
+
+    void accumulate_count(std::uint32_t cellIndex)
+    {
+        ++count_[cellIndex];
+    }
+
+    void accumulate_value(std::uint32_t cellIndex, float value)
+    {
+        ++count_[cellIndex];
+        switch (statistic_) {
+        case RasterStatistic::Min:
+            min_[cellIndex] = std::min(min_[cellIndex], value);
+            break;
+        case RasterStatistic::Max:
+            max_[cellIndex] = std::max(max_[cellIndex], value);
+            break;
+        case RasterStatistic::Sum:
+        case RasterStatistic::Mean:
+            sum_[cellIndex] += value;
+            break;
+        case RasterStatistic::Count:
+            break;
+        default:
+            break;
+        }
+    }
+
+    void merge_from(const StreamingLayerAccumulator& other)
+    {
+        if (statistic_ != other.statistic_ || count_.size() != other.count_.size()) {
+            throw std::runtime_error("cannot merge incompatible streaming layer accumulators");
+        }
+
+        for (std::size_t i = 0; i < count_.size(); ++i) {
+            count_[i] += other.count_[i];
+        }
+
+        switch (statistic_) {
+        case RasterStatistic::Min:
+            for (std::size_t i = 0; i < min_.size(); ++i) {
+                min_[i] = std::min(min_[i], other.min_[i]);
+            }
+            break;
+        case RasterStatistic::Max:
+            for (std::size_t i = 0; i < max_.size(); ++i) {
+                max_[i] = std::max(max_[i], other.max_[i]);
+            }
+            break;
+        case RasterStatistic::Sum:
+        case RasterStatistic::Mean:
+            for (std::size_t i = 0; i < sum_.size(); ++i) {
+                sum_[i] += other.sum_[i];
+            }
+            break;
+        case RasterStatistic::Count:
+            break;
+        default:
+            break;
+        }
+    }
+
+    std::vector<float> finalize(float nodataValue) const
+    {
+        std::vector<float> raster(count_.size(), nodataValue);
+        for (std::size_t i = 0; i < count_.size(); ++i) {
+            if (count_[i] == 0u) {
+                continue;
+            }
+            switch (statistic_) {
+            case RasterStatistic::Count:
+                raster[i] = static_cast<float>(count_[i]);
+                break;
+            case RasterStatistic::Min:
+                raster[i] = min_[i];
+                break;
+            case RasterStatistic::Max:
+                raster[i] = max_[i];
+                break;
+            case RasterStatistic::Sum:
+                raster[i] = static_cast<float>(sum_[i]);
+                break;
+            case RasterStatistic::Mean:
+                raster[i] = static_cast<float>(sum_[i] / static_cast<double>(count_[i]));
+                break;
+            default:
+                break;
+            }
+        }
+        return raster;
+    }
+
+private:
+    RasterStatistic statistic_{ RasterStatistic::Count };
+    std::vector<std::uint32_t> count_;
+    std::vector<double> sum_;
+    std::vector<float> min_;
+    std::vector<float> max_;
+};
+
+struct MemoryRasterWorkerResult
+{
+    std::vector<StreamingLayerAccumulator> streamingLayers;
+    std::vector<std::vector<OrderContribution>> orderLayers;
+    std::size_t orderContributionCount{ 0 };
+};
+
+struct RasterBuildSummary
+{
+    std::size_t layerCount{ 0 };
+    std::size_t orderContributionCount{ 0 };
 };
 
 class MemoryRasterRecorder final : public TrajectoryRecorder
 {
 public:
     MemoryRasterRecorder(const RasterGridGeometry& grid,
+        const RasterOutputConfig& config,
         Real dumpStep)
         : grid_(grid),
-        dumpStep_(dumpStep)
+        config_(config),
+        dumpStep_(dumpStep),
+        layerCount_(config.layers.size())
     {
         if (!(dumpStep_ > Real(0))) {
             throw std::runtime_error("memory raster output requires a positive dump step");
         }
+
+        const std::size_t cellCount = static_cast<std::size_t>(grid_.ncols) * grid_.nrows;
+        streamingSlotByLayer_.assign(layerCount_, -1);
+        orderSlotByLayer_.assign(layerCount_, -1);
+        metricSlotByLayer_.assign(layerCount_, -1);
+
+        for (std::size_t layerIdx = 0; layerIdx < layerCount_; ++layerIdx) {
+            const auto& layer = config_.layers[layerIdx];
+            if (raster_statistic_is_streaming(layer.statistic)) {
+                streamingSlotByLayer_[layerIdx] = static_cast<int>(result_.streamingLayers.size());
+                result_.streamingLayers.emplace_back(layer.statistic, cellCount);
+            }
+            else {
+                orderSlotByLayer_[layerIdx] = static_cast<int>(result_.orderLayers.size());
+                result_.orderLayers.emplace_back();
+            }
+
+            if (layer.statistic != RasterStatistic::Count) {
+                int metricSlot = find_metric_slot(layer.metric);
+                if (metricSlot < 0) {
+                    metricSlot = static_cast<int>(uniqueMetrics_.size());
+                    uniqueMetrics_.push_back(layer.metric);
+                }
+                metricSlotByLayer_[layerIdx] = metricSlot;
+            }
+        }
+
+        metricValues_.resize(uniqueMetrics_.size());
     }
 
     void beginTrajectory(const TrajectoryMetadata&,
@@ -125,7 +429,9 @@ public:
 
         currentRock_ = &rock;
         active_ = true;
-        visited_.clear();
+        trajectoryCellIndex_.clear();
+        trajectoryCells_.clear();
+        trajectoryLayerMax_.clear();
         lastWrittenTime_ = std::numeric_limits<Real>::quiet_NaN();
         nextDumpTime_ = initialStep.t + dumpStep_;
         accumulate(initialStep);
@@ -157,7 +463,9 @@ public:
         flush_trajectory();
         active_ = false;
         currentRock_ = nullptr;
-        visited_.clear();
+        trajectoryCellIndex_.clear();
+        trajectoryCells_.clear();
+        trajectoryLayerMax_.clear();
 
         return RecordedTrajectoryLocation{};
     }
@@ -166,22 +474,29 @@ public:
     {
         active_ = false;
         currentRock_ = nullptr;
-        visited_.clear();
+        trajectoryCellIndex_.clear();
+        trajectoryCells_.clear();
+        trajectoryLayerMax_.clear();
         nextDumpTime_ = Real(0);
         lastWrittenTime_ = std::numeric_limits<Real>::quiet_NaN();
     }
 
-    const std::vector<RasterContribution>& contributions() const noexcept
+    MemoryRasterWorkerResult releaseResult()
     {
-        return contributions_;
-    }
-
-    std::vector<RasterContribution> releaseContributions()
-    {
-        return std::move(contributions_);
+        return std::move(result_);
     }
 
 private:
+    int find_metric_slot(RasterMetric metric) const noexcept
+    {
+        for (std::size_t i = 0; i < uniqueMetrics_.size(); ++i) {
+            if (uniqueMetrics_[i] == metric) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
     void requireActive() const
     {
         if (!active_) {
@@ -189,10 +504,14 @@ private:
         }
     }
 
-    Real total_kinetic_energy(const RecordedStepData& step) const
+    void evaluate_metrics(const RecordedStepData& step)
     {
-        return Real(0.5) * currentRock_->mass() * step.u.head<3>().squaredNorm()
-            + Real(0.5) * step.u.tail<3>().dot(currentRock_->inertiaK() * step.u.tail<3>());
+        for (std::size_t i = 0; i < uniqueMetrics_.size(); ++i) {
+            const std::optional<Real> value = sample_metric_value(uniqueMetrics_[i], *currentRock_, step);
+            metricValues_[i] = (value.has_value() && std::isfinite(*value))
+                ? static_cast<float>(*value)
+                : std::numeric_limits<float>::quiet_NaN();
+        }
     }
 
     void accumulate(const RecordedStepData& step)
@@ -204,50 +523,107 @@ private:
             return;
         }
 
-        auto& slot = visited_[*cellIndex];
-        slot.maxEkinTot = std::max(slot.maxEkinTot, total_kinetic_energy(step));
-        if (step.minGap.has_value() && std::isfinite(*step.minGap)) {
-            slot.maxJumpH = std::max(slot.maxJumpH, *step.minGap);
+        auto it = trajectoryCellIndex_.find(*cellIndex);
+        std::size_t cellSlot = 0;
+        if (it == trajectoryCellIndex_.end()) {
+            cellSlot = trajectoryCells_.size();
+            trajectoryCellIndex_.emplace(*cellIndex, cellSlot);
+            trajectoryCells_.push_back(*cellIndex);
+            trajectoryLayerMax_.resize((cellSlot + 1u) * layerCount_, -std::numeric_limits<float>::infinity());
+        }
+        else {
+            cellSlot = it->second;
+        }
+
+        evaluate_metrics(step);
+        const std::size_t base = cellSlot * layerCount_;
+        for (std::size_t layerIdx = 0; layerIdx < layerCount_; ++layerIdx) {
+            if (config_.layers[layerIdx].statistic == RasterStatistic::Count) {
+                continue;
+            }
+
+            const int metricSlot = metricSlotByLayer_[layerIdx];
+            const float value = metricValues_[static_cast<std::size_t>(metricSlot)];
+            if (!std::isfinite(value)) {
+                continue;
+            }
+            trajectoryLayerMax_[base + layerIdx] = std::max(trajectoryLayerMax_[base + layerIdx], value);
         }
     }
 
     void flush_trajectory()
     {
-        contributions_.reserve(contributions_.size() + visited_.size());
-        for (const auto& entry : visited_) {
-            contributions_.push_back(RasterContribution{
-                entry.first,
-                static_cast<float>(entry.second.maxEkinTot),
-                static_cast<float>(entry.second.maxJumpH)
-                });
+        for (std::size_t cellSlot = 0; cellSlot < trajectoryCells_.size(); ++cellSlot) {
+            const std::uint32_t cellIndex = trajectoryCells_[cellSlot];
+            const std::size_t base = cellSlot * layerCount_;
+            for (std::size_t layerIdx = 0; layerIdx < layerCount_; ++layerIdx) {
+                const auto& layer = config_.layers[layerIdx];
+                if (layer.statistic == RasterStatistic::Count) {
+                    result_.streamingLayers[static_cast<std::size_t>(streamingSlotByLayer_[layerIdx])].accumulate_count(cellIndex);
+                    continue;
+                }
+
+                const float value = trajectoryLayerMax_[base + layerIdx];
+                if (!std::isfinite(value)) {
+                    continue;
+                }
+
+                if (streamingSlotByLayer_[layerIdx] >= 0) {
+                    result_.streamingLayers[static_cast<std::size_t>(streamingSlotByLayer_[layerIdx])]
+                        .accumulate_value(cellIndex, value);
+                }
+                else {
+                    result_.orderLayers[static_cast<std::size_t>(orderSlotByLayer_[layerIdx])]
+                        .push_back(OrderContribution{ cellIndex, value });
+                    ++result_.orderContributionCount;
+                }
+            }
         }
     }
 
 private:
     RasterGridGeometry grid_;
+    RasterOutputConfig config_;
     Real dumpStep_{ Real(0) };
+    std::size_t layerCount_{ 0 };
     bool active_{ false };
     const Rock* currentRock_{ nullptr };
     Real nextDumpTime_{ Real(0) };
     Real lastWrittenTime_{ std::numeric_limits<Real>::quiet_NaN() };
-    std::unordered_map<std::uint32_t, TrajectoryCellAggregate> visited_;
-    std::vector<RasterContribution> contributions_;
+    std::vector<RasterMetric> uniqueMetrics_;
+    std::vector<float> metricValues_;
+    std::vector<int> metricSlotByLayer_;
+    std::vector<int> streamingSlotByLayer_;
+    std::vector<int> orderSlotByLayer_;
+    std::unordered_map<std::uint32_t, std::size_t> trajectoryCellIndex_;
+    std::vector<std::uint32_t> trajectoryCells_;
+    std::vector<float> trajectoryLayerMax_;
+    MemoryRasterWorkerResult result_;
 };
 
-inline std::size_t percentile_index_q95(std::size_t count) noexcept
+inline std::size_t percentile_index(std::size_t count, double percentile) noexcept
 {
     if (count == 0) {
         return 0;
     }
-    return static_cast<std::size_t>(std::ceil(0.95 * static_cast<double>(count))) - 1u;
+    return static_cast<std::size_t>(std::ceil(percentile * static_cast<double>(count))) - 1u;
 }
 
-inline float compute_q95_in_place(std::vector<float>& values)
+inline float compute_order_statistic_in_place(const RasterLayerSpec& layer,
+    std::vector<float>& values)
 {
     if (values.empty()) {
         return std::numeric_limits<float>::quiet_NaN();
     }
-    const std::size_t idx = percentile_index_q95(values.size());
+
+    std::size_t idx = 0;
+    if (layer.statistic == RasterStatistic::Median) {
+        idx = percentile_index(values.size(), 0.5);
+    }
+    else {
+        const double percentile = static_cast<double>(layer.percentile.value_or(Real(95))) / 100.0;
+        idx = percentile_index(values.size(), percentile);
+    }
     std::nth_element(values.begin(), values.begin() + idx, values.end());
     return values[idx];
 }
@@ -326,47 +702,90 @@ inline void write_float32_geotiff(const fs::path& path,
 #endif
 }
 
-inline void build_q95_rasters_from_memory(const fs::path& outputDir,
+inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
+    const RasterOutputConfig& config,
     const RasterGridGeometry& grid,
-    std::vector<RasterContribution> records)
+    std::vector<MemoryRasterWorkerResult> workerResults)
 {
     const std::size_t rasterCellCount = static_cast<std::size_t>(grid.ncols) * grid.nrows;
     const float nodataValue = -9999.0f;
-    std::vector<float> q95Ekin(rasterCellCount, nodataValue);
-    std::vector<float> q95JumpH(rasterCellCount, nodataValue);
 
-    if (!records.empty()) {
-        std::sort(records.begin(), records.end(), [](const RasterContribution& a, const RasterContribution& b) {
-            return a.cellIndex < b.cellIndex;
-            });
+    RasterBuildSummary summary;
+    summary.layerCount = config.layers.size();
 
-        std::vector<float> ekinValues;
-        std::vector<float> jumpValues;
-        std::size_t begin = 0;
-        while (begin < records.size()) {
-            const std::uint32_t cellIndex = records[begin].cellIndex;
-            std::size_t end = begin;
-            while (end < records.size() && records[end].cellIndex == cellIndex) {
-                ++end;
-            }
-
-            ekinValues.clear();
-            jumpValues.clear();
-            ekinValues.reserve(end - begin);
-            jumpValues.reserve(end - begin);
-            for (std::size_t i = begin; i < end; ++i) {
-                ekinValues.push_back(records[i].ekinTot);
-                jumpValues.push_back(records[i].jumpH);
-            }
-
-            if (cellIndex < rasterCellCount) {
-                q95Ekin[cellIndex] = compute_q95_in_place(ekinValues);
-                q95JumpH[cellIndex] = compute_q95_in_place(jumpValues);
-            }
-            begin = end;
+    std::vector<std::size_t> streamingSlotByLayer(config.layers.size(), static_cast<std::size_t>(-1));
+    std::vector<std::size_t> orderSlotByLayer(config.layers.size(), static_cast<std::size_t>(-1));
+    std::size_t streamingCount = 0;
+    std::size_t orderCount = 0;
+    for (std::size_t layerIdx = 0; layerIdx < config.layers.size(); ++layerIdx) {
+        if (raster_statistic_is_streaming(config.layers[layerIdx].statistic)) {
+            streamingSlotByLayer[layerIdx] = streamingCount++;
+        }
+        else {
+            orderSlotByLayer[layerIdx] = orderCount++;
         }
     }
 
-    write_float32_geotiff(outputDir / "q95_ekin_tot.tif", grid, q95Ekin, nodataValue);
-    write_float32_geotiff(outputDir / "q95_jump_h.tif", grid, q95JumpH, nodataValue);
+    for (std::size_t layerIdx = 0; layerIdx < config.layers.size(); ++layerIdx) {
+        const auto& layer = config.layers[layerIdx];
+        const fs::path outPath = outputDir / (default_raster_output_stem(layer) + ".tif");
+
+        if (raster_statistic_is_streaming(layer.statistic)) {
+            StreamingLayerAccumulator merged(layer.statistic, rasterCellCount);
+            const std::size_t slot = streamingSlotByLayer[layerIdx];
+            for (const auto& worker : workerResults) {
+                merged.merge_from(worker.streamingLayers[slot]);
+            }
+            write_float32_geotiff(outPath, grid, merged.finalize(nodataValue), nodataValue);
+        }
+        else {
+            const std::size_t slot = orderSlotByLayer[layerIdx];
+            std::size_t totalRecords = 0;
+            for (const auto& worker : workerResults) {
+                totalRecords += worker.orderLayers[slot].size();
+            }
+            summary.orderContributionCount += totalRecords;
+
+            std::vector<OrderContribution> records;
+            records.reserve(totalRecords);
+            for (auto& worker : workerResults) {
+                auto& source = worker.orderLayers[slot];
+                records.insert(records.end(),
+                    std::make_move_iterator(source.begin()),
+                    std::make_move_iterator(source.end()));
+            }
+
+            std::vector<float> raster(rasterCellCount, nodataValue);
+            if (!records.empty()) {
+                std::sort(records.begin(), records.end(), [](const OrderContribution& a, const OrderContribution& b) {
+                    return a.cellIndex < b.cellIndex;
+                    });
+
+                std::vector<float> cellValues;
+                std::size_t begin = 0;
+                while (begin < records.size()) {
+                    const std::uint32_t cellIndex = records[begin].cellIndex;
+                    std::size_t end = begin;
+                    while (end < records.size() && records[end].cellIndex == cellIndex) {
+                        ++end;
+                    }
+
+                    cellValues.clear();
+                    cellValues.reserve(end - begin);
+                    for (std::size_t i = begin; i < end; ++i) {
+                        cellValues.push_back(records[i].value);
+                    }
+
+                    if (cellIndex < rasterCellCount) {
+                        raster[cellIndex] = compute_order_statistic_in_place(layer, cellValues);
+                    }
+                    begin = end;
+                }
+            }
+
+            write_float32_geotiff(outPath, grid, raster, nodataValue);
+        }
+    }
+
+    return summary;
 }
