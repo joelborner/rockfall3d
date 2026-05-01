@@ -231,7 +231,7 @@ This tag is optional.
 
 If omitted:
 
-- output falls back to legacy text trajectory files
+- output falls back to text trajectory files
 
 If present:
 
@@ -246,7 +246,7 @@ Required attributes:
 
 | Attribute | Meaning |
 |---|---|
-| `format` | Output format: `binary-sharded` or `legacy-text` |
+| `format` | Output format: `binary` or `text` |
 | `metric` | Comma-separated trajectory metrics |
 
 #### `<raster/>`
@@ -271,7 +271,6 @@ Optional attributes:
 Notes:
 
 - all `<raster .../>` tags inside one `<output>` block must currently use the same `resolution`
-- raster output currently supports raster-only runs or raster combined with `binary-sharded` trajectory output
 
 Valid metric names / aliases:
 
@@ -351,7 +350,7 @@ Notes:
 
 <output>
   <trajectory
-      format="binary-sharded"
+      format="binary"
       metric="t,x,y,z,qw,qx,qy,qz,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
   <raster
       metric="ekin_tot"
@@ -374,13 +373,13 @@ Notes:
 
 ## Outputs
 
-### Legacy text output
+### Text output
 
-If no `<output>...</output>` tag is given, the simulator writes legacy text trajectory files and a `manifest.csv`.
+If no `<output>...</output>` tag is given, the simulator writes text trajectory files and a `manifest.csv`.
 
-### Binary-sharded output
+### Binary output
 
-If `<output><trajectory format="binary-sharded" .../></output>` is given, the simulator writes:
+If `<output><trajectory format="binary" .../></output>` is given, the simulator writes:
 
 - `manifest.csv`
 - one binary shard file per worker thread, for example `trajectories_001.rfbin`

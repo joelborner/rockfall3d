@@ -471,6 +471,7 @@ public:
     }
 
     void abortActiveTrajectory() noexcept
+        override
     {
         active_ = false;
         currentRock_ = nullptr;

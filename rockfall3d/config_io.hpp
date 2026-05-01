@@ -282,11 +282,11 @@ inline ContactSolverType parse_solver_type(const std::string& text)
 inline OutputFormat parse_output_format(const std::string& text)
 {
     const std::string value = to_lower_copy(trim_copy(text));
-    if (value.empty() || value == "text" || value == "legacy" || value == "legacy-text" || value == "legacy_text") {
-        return OutputFormat::LegacyText;
+    if (value == "text") {
+        return OutputFormat::Text;
     }
-    if (value == "binary" || value == "binary-sharded" || value == "binary_sharded" || value == "binary-shard" || value == "binary_shard") {
-        return OutputFormat::BinarySharded;
+    if (value == "binary") {
+        return OutputFormat::Binary;
     }
     throw std::runtime_error("unknown output format: " + text);
 }
@@ -348,6 +348,26 @@ inline std::vector<OutputFieldId> parse_output_fields(const std::string& text)
         throw std::runtime_error("expected at least one output variable");
     }
     return fields;
+}
+
+inline std::vector<OutputFieldId> default_output_fields()
+{
+    return std::vector<OutputFieldId>{
+        OutputFieldId::Time,
+        OutputFieldId::X,
+        OutputFieldId::Y,
+        OutputFieldId::Z,
+        OutputFieldId::Qw,
+        OutputFieldId::Qx,
+        OutputFieldId::Qy,
+        OutputFieldId::Qz,
+        OutputFieldId::Vx,
+        OutputFieldId::Vy,
+        OutputFieldId::Vz,
+        OutputFieldId::Wx,
+        OutputFieldId::Wy,
+        OutputFieldId::Wz
+    };
 }
 
 inline RasterMetric parse_raster_metric(const std::string& text)
@@ -639,6 +659,8 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     }
     else {
         cfg.output.enabled = true;
+        cfg.output.format = OutputFormat::Text;
+        cfg.output.fields = default_output_fields();
     }
 
     if (debugTag) {

@@ -9,8 +9,8 @@
 
 enum class OutputFormat : std::uint8_t
 {
-    LegacyText = 0,
-    BinarySharded = 1
+    Text = 0,
+    Binary = 1
 };
 
 enum class OutputFieldId : std::uint16_t
@@ -53,7 +53,7 @@ struct OutputFieldDescriptor
 struct OutputSettings
 {
     bool enabled{ false };
-    OutputFormat format{ OutputFormat::LegacyText };
+    OutputFormat format{ OutputFormat::Text };
     std::vector<OutputFieldId> fields;
 };
 
