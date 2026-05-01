@@ -123,6 +123,11 @@ struct RasterGridGeometry
     std::string projectionWkt;
 };
 
+inline Real snap_origin_down(Real value, Real resolution) noexcept
+{
+    return std::floor(value / resolution) * resolution;
+}
+
 inline RasterGridGeometry make_raster_grid_geometry(const Terrain& dem, Real resolution)
 {
     if (!(resolution > Real(0))) {
@@ -130,15 +135,19 @@ inline RasterGridGeometry make_raster_grid_geometry(const Terrain& dem, Real res
     }
 
     RasterGridGeometry grid;
-    grid.xll = dem.xll;
-    grid.yll = dem.yll;
+    grid.xll = snap_origin_down(dem.xll, resolution);
+    grid.yll = snap_origin_down(dem.yll, resolution);
     grid.cell = resolution;
     grid.projectionWkt = dem.projectionWkt;
 
-    const Real width = Real(dem.nx - 1) * dem.cell;
-    const Real height = Real(dem.ny - 1) * dem.cell;
-    grid.ncols = static_cast<std::uint32_t>(std::floor(width / resolution)) + 1u;
-    grid.nrows = static_cast<std::uint32_t>(std::floor(height / resolution)) + 1u;
+    const Real width = dem.xmax - grid.xll;
+    const Real height = dem.ymax - grid.yll;
+    grid.ncols = std::max<std::uint32_t>(
+        1u,
+        static_cast<std::uint32_t>(std::ceil(width / resolution)));
+    grid.nrows = std::max<std::uint32_t>(
+        1u,
+        static_cast<std::uint32_t>(std::ceil(height / resolution)));
     if (grid.ncols == 0 || grid.nrows == 0) {
         throw std::runtime_error("raster output grid is empty");
     }
@@ -373,6 +382,15 @@ struct RasterBuildSummary
 {
     std::size_t layerCount{ 0 };
     std::size_t orderContributionCount{ 0 };
+};
+
+struct RasterCropBounds
+{
+    std::uint32_t colMin{ 0 };
+    std::uint32_t colMax{ 0 };
+    std::uint32_t rowMin{ 0 };
+    std::uint32_t rowMax{ 0 };
+    bool hasData{ false };
 };
 
 class MemoryRasterRecorder final : public TrajectoryRecorder
@@ -703,6 +721,85 @@ inline void write_float32_geotiff(const fs::path& path,
 #endif
 }
 
+inline RasterCropBounds find_union_crop_bounds(const std::vector<std::vector<float>>& rasters,
+    const RasterGridGeometry& grid,
+    float nodataValue) noexcept
+{
+    RasterCropBounds bounds;
+    if (rasters.empty() || grid.ncols == 0 || grid.nrows == 0) {
+        return bounds;
+    }
+
+    for (std::uint32_t row = 0; row < grid.nrows; ++row) {
+        for (std::uint32_t col = 0; col < grid.ncols; ++col) {
+            const std::size_t idx = static_cast<std::size_t>(row) * grid.ncols + col;
+            bool occupied = false;
+            for (const auto& raster : rasters) {
+                const float value = raster[idx];
+                if (std::isfinite(value) && value != nodataValue) {
+                    occupied = true;
+                    break;
+                }
+            }
+
+            if (!occupied) {
+                continue;
+            }
+
+            if (!bounds.hasData) {
+                bounds.colMin = bounds.colMax = col;
+                bounds.rowMin = bounds.rowMax = row;
+                bounds.hasData = true;
+            }
+            else {
+                bounds.colMin = std::min(bounds.colMin, col);
+                bounds.colMax = std::max(bounds.colMax, col);
+                bounds.rowMin = std::min(bounds.rowMin, row);
+                bounds.rowMax = std::max(bounds.rowMax, row);
+            }
+        }
+    }
+
+    return bounds;
+}
+
+inline RasterGridGeometry crop_raster_grid(const RasterGridGeometry& grid,
+    const RasterCropBounds& bounds) noexcept
+{
+    if (!bounds.hasData) {
+        return grid;
+    }
+
+    RasterGridGeometry cropped = grid;
+    cropped.xll = grid.xll + Real(bounds.colMin) * grid.cell;
+    cropped.yll = grid.yll + Real(bounds.rowMin) * grid.cell;
+    cropped.ncols = bounds.colMax - bounds.colMin + 1u;
+    cropped.nrows = bounds.rowMax - bounds.rowMin + 1u;
+    return cropped;
+}
+
+inline std::vector<float> crop_raster_values(const std::vector<float>& raster,
+    const RasterGridGeometry& grid,
+    const RasterCropBounds& bounds)
+{
+    if (!bounds.hasData) {
+        return raster;
+    }
+
+    const std::uint32_t croppedCols = bounds.colMax - bounds.colMin + 1u;
+    const std::uint32_t croppedRows = bounds.rowMax - bounds.rowMin + 1u;
+    std::vector<float> cropped(static_cast<std::size_t>(croppedCols) * croppedRows);
+
+    for (std::uint32_t row = 0; row < croppedRows; ++row) {
+        const std::uint32_t srcRow = bounds.rowMin + row;
+        const std::size_t srcOffset = static_cast<std::size_t>(srcRow) * grid.ncols + bounds.colMin;
+        const std::size_t dstOffset = static_cast<std::size_t>(row) * croppedCols;
+        std::copy_n(raster.data() + srcOffset, croppedCols, cropped.data() + dstOffset);
+    }
+
+    return cropped;
+}
+
 inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
     const RasterOutputConfig& config,
     const RasterGridGeometry& grid,
@@ -727,9 +824,9 @@ inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
         }
     }
 
+    std::vector<std::vector<float>> finalizedRasters(config.layers.size());
     for (std::size_t layerIdx = 0; layerIdx < config.layers.size(); ++layerIdx) {
         const auto& layer = config.layers[layerIdx];
-        const fs::path outPath = outputDir / (default_raster_output_stem(layer) + ".tif");
 
         if (raster_statistic_is_streaming(layer.statistic)) {
             StreamingLayerAccumulator merged(layer.statistic, rasterCellCount);
@@ -737,7 +834,7 @@ inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
             for (const auto& worker : workerResults) {
                 merged.merge_from(worker.streamingLayers[slot]);
             }
-            write_float32_geotiff(outPath, grid, merged.finalize(nodataValue), nodataValue);
+            finalizedRasters[layerIdx] = merged.finalize(nodataValue);
         }
         else {
             const std::size_t slot = orderSlotByLayer[layerIdx];
@@ -784,8 +881,20 @@ inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
                 }
             }
 
-            write_float32_geotiff(outPath, grid, raster, nodataValue);
+            finalizedRasters[layerIdx] = std::move(raster);
         }
+    }
+
+    const RasterCropBounds cropBounds = find_union_crop_bounds(finalizedRasters, grid, nodataValue);
+    const RasterGridGeometry croppedGrid = crop_raster_grid(grid, cropBounds);
+    for (std::size_t layerIdx = 0; layerIdx < config.layers.size(); ++layerIdx) {
+        const auto& layer = config.layers[layerIdx];
+        const fs::path outPath = outputDir / (default_raster_output_stem(layer) + ".tif");
+        write_float32_geotiff(
+            outPath,
+            croppedGrid,
+            crop_raster_values(finalizedRasters[layerIdx], grid, cropBounds),
+            nodataValue);
     }
 
     return summary;
