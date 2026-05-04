@@ -21,6 +21,7 @@
 
 namespace fs = std::filesystem;
 
+// Possible metrics for raster output
 enum class RasterMetric : std::uint8_t
 {
     None = 0,
@@ -41,6 +42,7 @@ enum class RasterMetric : std::uint8_t
     JumpH
 };
 
+// Possible statistics to compute for each raster cell
 enum class RasterStatistic : std::uint8_t
 {
     Count = 0,
@@ -52,12 +54,14 @@ enum class RasterStatistic : std::uint8_t
     Percentile
 };
 
+// Order-based statistics require storing all values for a cell, while streaming statistics can be computed in one pass without storing all values.
 inline bool raster_statistic_is_order_based(RasterStatistic statistic) noexcept
 {
     return statistic == RasterStatistic::Median
         || statistic == RasterStatistic::Percentile;
 }
 
+// Order-based statistics require storing all values for a cell, while streaming statistics can be computed in one pass without storing all values.
 inline bool raster_statistic_is_streaming(RasterStatistic statistic) noexcept
 {
     return !raster_statistic_is_order_based(statistic);
@@ -123,11 +127,15 @@ struct RasterGridGeometry
     std::string projectionWkt;
 };
 
+// snaps raster origin down to a multiple of the resolution, so that the output grid is nicely aligned and not offset by a small fraction of the resolution
 inline Real snap_origin_down(Real value, Real resolution) noexcept
 {
     return std::floor(value / resolution) * resolution;
 }
 
+// Compute the geometry of the output raster grid based on the DEM geometry and the requested output resolution. 
+// The grid is snapped down to a multiple of the resolution to ensure nice alignment. 
+// The grid covers at least the DEM extent, but may be larger due to snapping and rounding.
 inline RasterGridGeometry make_raster_grid_geometry(const Terrain& dem, Real resolution)
 {
     if (!(resolution > Real(0))) {
@@ -154,6 +162,8 @@ inline RasterGridGeometry make_raster_grid_geometry(const Terrain& dem, Real res
     return grid;
 }
 
+// Resolve a world-space query point to a raster cell index. 
+// Returns nullopt if the point is outside the grid.
 inline std::optional<std::uint32_t> raster_cell_index(const RasterGridGeometry& grid,
     Real x,
     Real y) noexcept
@@ -190,6 +200,7 @@ inline std::optional<std::uint32_t> raster_cell_index(const RasterGridGeometry& 
     return row * grid.ncols + col;
 }
 
+// Generate a default output stem for a raster layer based on its metric and statistic.
 inline std::string default_raster_output_stem(const RasterLayerSpec& layer)
 {
     if (!layer.outputStem.empty()) {
@@ -206,6 +217,8 @@ inline std::string default_raster_output_stem(const RasterLayerSpec& layer)
     return raster_statistic_name(layer.statistic) + "_" + raster_metric_name(layer.metric);
 }
 
+// Sample the value of the specified metric from the given step data. 
+// Returns nullopt if the metric is not available.
 inline std::optional<Real> sample_metric_value(RasterMetric metric,
     const Rock& rock,
     const RecordedStepData& step)
@@ -239,17 +252,19 @@ inline std::optional<Real> sample_metric_value(RasterMetric metric,
     }
 }
 
+// Contribution of a single trajectory step to an order-based statistic for a specific raster cell.
 struct OrderContribution
 {
     std::uint32_t cellIndex{ 0 };
     float value{ 0.0f };
 };
 
+// Accumulator for streaming statistics for a single raster layer.
 class StreamingLayerAccumulator
 {
 public:
     StreamingLayerAccumulator() = default;
-
+	// Initialize the accumulator for the specified statistic and number of cells.
     StreamingLayerAccumulator(RasterStatistic statistic,
         std::size_t cellCount)
         : statistic_(statistic),
@@ -272,12 +287,13 @@ public:
             throw std::runtime_error("streaming layer accumulator received non-streaming statistic");
         }
     }
-
+	// Accumulate a count contribution for the specified cell index.
     void accumulate_count(std::uint32_t cellIndex)
     {
         ++count_[cellIndex];
     }
 
+	// Accumulate a value contribution for the specified cell index, updating the count and the relevant statistic.
     void accumulate_value(std::uint32_t cellIndex, float value)
     {
         ++count_[cellIndex];
@@ -299,6 +315,7 @@ public:
         }
     }
 
+	// Merge another accumulator into this one, combining their counts and statistics.
     void merge_from(const StreamingLayerAccumulator& other)
     {
         if (statistic_ != other.statistic_ || count_.size() != other.count_.size()) {
@@ -333,6 +350,7 @@ public:
         }
     }
 
+	// Finalize the accumulated statistics into a raster layer, applying the specified nodata value for cells with no contributions.
     std::vector<float> finalize(float nodataValue) const
     {
         std::vector<float> raster(count_.size(), nodataValue);
@@ -393,6 +411,8 @@ struct RasterCropBounds
     bool hasData{ false };
 };
 
+// Trajectory recorder that accumulates raster contributions in memory for a single trajectory.
+// Produces a result that can be merged with other trajectories' results to build the final raster layers.
 class MemoryRasterRecorder final : public TrajectoryRecorder
 {
 public:
@@ -413,6 +433,7 @@ public:
         orderSlotByLayer_.assign(layerCount_, -1);
         metricSlotByLayer_.assign(layerCount_, -1);
 
+		// Initialize accumulators for each layer and track unique metrics.
         for (std::size_t layerIdx = 0; layerIdx < layerCount_; ++layerIdx) {
             const auto& layer = config_.layers[layerIdx];
             if (raster_statistic_is_streaming(layer.statistic)) {
@@ -437,6 +458,7 @@ public:
         metricValues_.resize(uniqueMetrics_.size());
     }
 
+	// Begin a new trajectory, resetting the internal state and accumulating the initial step.
     void beginTrajectory(const TrajectoryMetadata&,
         const Rock& rock,
         const RecordedStepData& initialStep) override
@@ -455,6 +477,7 @@ public:
         accumulate(initialStep);
     }
 
+	// On each accepted step, check if it falls onto the next dump time. If so, accumulate its contribution and update the next dump time.
     void onAcceptedStep(const RecordedStepData& step) override
     {
         requireActive();
@@ -468,6 +491,7 @@ public:
         nextDumpTime_ = step.t + dumpStep_;
     }
 
+	// Finalize the trajectory by flushing the accumulated contributions into the result and resetting the internal state.
     RecordedTrajectoryLocation endTrajectory(const RecordedStepData& finalStep,
         double) override
     {
@@ -488,6 +512,7 @@ public:
         return RecordedTrajectoryLocation{};
     }
 
+	// If a trajectory is aborted, reset the internal state without flushing contributions, effectively discarding any accumulated data for that trajectory.
     void abortActiveTrajectory() noexcept
         override
     {
@@ -506,6 +531,7 @@ public:
     }
 
 private:
+	// Find the slot index for the specified metric in the uniqueMetrics_ vector.
     int find_metric_slot(RasterMetric metric) const noexcept
     {
         for (std::size_t i = 0; i < uniqueMetrics_.size(); ++i) {
@@ -523,6 +549,7 @@ private:
         }
     }
 
+	// Evaluate all unique metrics for the current step and store their values in metricValues_ for later use in accumulating layer contributions.
     void evaluate_metrics(const RecordedStepData& step)
     {
         for (std::size_t i = 0; i < uniqueMetrics_.size(); ++i) {
@@ -532,7 +559,7 @@ private:
                 : std::numeric_limits<float>::quiet_NaN();
         }
     }
-
+	// Accumulate the contribution of the current step to the relevant raster cell and layers, updating the maximum value for order-based statistics and the streaming accumulators for streaming statistics.
     void accumulate(const RecordedStepData& step)
     {
         lastWrittenTime_ = step.t;
@@ -570,6 +597,7 @@ private:
         }
     }
 
+	// Flush the accumulated contributions for the trajectory into the result, updating the streaming accumulators and order-based contribution lists for each layer based on the maximum metric values observed for each cell.
     void flush_trajectory()
     {
         for (std::size_t cellSlot = 0; cellSlot < trajectoryCells_.size(); ++cellSlot) {
@@ -620,6 +648,7 @@ private:
     MemoryRasterWorkerResult result_;
 };
 
+// Compute the index of the value corresponding to the specified percentile in a sorted list of the given count.
 inline std::size_t percentile_index(std::size_t count, double percentile) noexcept
 {
     if (count == 0) {
@@ -628,6 +657,7 @@ inline std::size_t percentile_index(std::size_t count, double percentile) noexce
     return static_cast<std::size_t>(std::ceil(percentile * static_cast<double>(count))) - 1u;
 }
 
+// Compute the value of an order-based statistic (median or percentile) for a raster cell by partially sorting the list of values and selecting the appropriate index.
 inline float compute_order_statistic_in_place(const RasterLayerSpec& layer,
     std::vector<float>& values)
 {
@@ -647,6 +677,8 @@ inline float compute_order_statistic_in_place(const RasterLayerSpec& layer,
     return values[idx];
 }
 
+// Write a single-band float32 GeoTIFF raster file with the specified grid geometry, cell values, and nodata value. 
+// The input data is expected to be in south-up order and will be flipped to north-up order for GeoTIFF output.
 inline void write_float32_geotiff(const fs::path& path,
     const RasterGridGeometry& grid,
     const std::vector<float>& southWestData,
@@ -721,6 +753,7 @@ inline void write_float32_geotiff(const fs::path& path,
 #endif
 }
 
+// Compute the bounding box of the union of the occupied cells across multiple raster layers, where a cell is considered occupied if it has a finite value different from the nodata value in any of the layers.
 inline RasterCropBounds find_union_crop_bounds(const std::vector<std::vector<float>>& rasters,
     const RasterGridGeometry& grid,
     float nodataValue) noexcept
@@ -763,6 +796,7 @@ inline RasterCropBounds find_union_crop_bounds(const std::vector<std::vector<flo
     return bounds;
 }
 
+// Crop the raster grid geometry to the specified bounds, returning a new geometry that corresponds to the subset of the original grid defined by the bounds.
 inline RasterGridGeometry crop_raster_grid(const RasterGridGeometry& grid,
     const RasterCropBounds& bounds) noexcept
 {
@@ -778,6 +812,7 @@ inline RasterGridGeometry crop_raster_grid(const RasterGridGeometry& grid,
     return cropped;
 }
 
+// Crop the raster values to the specified bounds, returning a new vector that contains only the values corresponding to the subset of the original grid defined by the bounds.
 inline std::vector<float> crop_raster_values(const std::vector<float>& raster,
     const RasterGridGeometry& grid,
     const RasterCropBounds& bounds)
@@ -800,6 +835,10 @@ inline std::vector<float> crop_raster_values(const std::vector<float>& raster,
     return cropped;
 }
 
+// Build the final raster layers by merging the results from multiple workers,
+// finalizing the streaming statistics, computing the order-based statistics, finding the union crop bounds, cropping the rasters, 
+// and writing them to GeoTIFF files in the specified output directory. 
+// Returns a summary of the build process, including the number of layers and order contributions.
 inline RasterBuildSummary build_rasters_from_workers(const fs::path& outputDir,
     const RasterOutputConfig& config,
     const RasterGridGeometry& grid,

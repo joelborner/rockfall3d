@@ -31,6 +31,7 @@ enum class TimeStepperStopReason : std::uint8_t
     SolverNonConvergence = 7
 };
 
+// returns strings for the reached stop criterion
 inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
 {
     switch (reason) {
@@ -45,18 +46,17 @@ inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
     }
 }
 
+// Accepted fixed-step states.
 struct TimeStepperResult
 {
-    // Accepted fixed-step states.
-    std::vector<Real>                           t;
-    std::vector<Eigen::Matrix<Real, 7, 1>>     q;
-    std::vector<Vec6>                           u;
+    std::vector<Real>                           t;// time
+    std::vector<Eigen::Matrix<Real, 7, 1>>     q;// generalised coordinates
+	std::vector<Vec6>                           u;// generalised velocities
     TimeStepperStopReason stopReason{ TimeStepperStopReason::Unknown };
 };
 
 struct TimeStepperStopCriteria
 {
-    // Default stop criteria. usually overwritten by parsing an input XML
     Real maxTime = Real(20.0);                 // hard upper bound on simulated time
     std::uint32_t maxSteps = 200000;           // hard upper bound on accepted steps
     std::uint32_t settleMinSteps = 100;        // ignore settle checks before this many steps
@@ -64,22 +64,22 @@ struct TimeStepperStopCriteria
     Real settleAngularSpeed = Real(0.1);       // stop once rotation falls below this value
 };
 
+// Lightweight end-of-run summary for recorder-based output modes.
 struct TimeStepperRunSummary
 {
-    // Lightweight end-of-run summary for recorder-based output modes.
-    Real tFinal{ Real(0) };
-    std::uint32_t acceptedSteps{ 0 };
-    Eigen::Matrix<Real, 7, 1> qFinal = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();
-    Vec6 uFinal = Vec6::Zero();
-    std::optional<Real> minGapFinal;
-    TimeStepperStopReason stopReason{ TimeStepperStopReason::Unknown };
+    Real tFinal{ Real(0) };// total simulated time
+	std::uint32_t acceptedSteps{ 0 };// total accepted steps
+    Eigen::Matrix<Real, 7, 1> qFinal = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalized coordinates at stop
+    Vec6 uFinal = Vec6::Zero();// generalized velocities at stop
+    std::optional<Real> minGapFinal;// minimum gap at stop
+    TimeStepperStopReason stopReason{ TimeStepperStopReason::Unknown };// reason for stopping
 };
 
+// Per-thread scratch storage reused across trajectories. This avoids
+// repeated heap allocations in the hot terrain-query and contact-solve
+// path.
 struct TimeStepperWorkspace
 {
-    // Per-thread scratch storage reused across trajectories. This avoids
-    // repeated heap allocations in the hot terrain-query and contact-solve
-    // path.
     TerrainQueryWorkspace terrain;
     ContactSolverWorkspace solver;
 };
@@ -101,7 +101,7 @@ public:
         Real dt,
         const TimeStepperStopCriteria& stop = {}) const;
 
-    // Same as above, but caller provides reusable scratch storage.
+    // Run and keep all dumped states in memory, caller provides reusable scratch storage.
     TimeStepperResult run(Real mu,
         const Terrain& dem,
         const Rock& rock,

@@ -23,9 +23,9 @@ enum class TerrainContainment : std::uint8_t
     NoData = 2
 };
 
+// Summary returned by the hot terrain-query kernel used during stepping.
 struct TerrainQueryResult
 {
-    // Summary returned by the hot terrain-query kernel used during stepping.
     TerrainContainment state{ TerrainContainment::Inside };
     Real minGap{ std::numeric_limits<Real>::infinity() };
     Real minPositiveGap{ std::numeric_limits<Real>::infinity() };

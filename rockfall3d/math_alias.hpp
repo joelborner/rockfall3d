@@ -34,6 +34,7 @@ using IdxV = Eigen::Array<std::uint32_t, Eigen::Dynamic, 1>;
 using ArrXXb = Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic>;
 
 // Utility functions
+
 // Tilde operator - returns the skew-symmetric matrix of a 3 - vector.
 inline Mat3 tilde(const Vec3& k) noexcept
 {

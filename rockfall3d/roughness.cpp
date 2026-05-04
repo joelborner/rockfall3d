@@ -6,6 +6,9 @@
 #include <map>
 #include <stdexcept>
 
+// Add roughness to the terrain from a raster file. 
+// The raster values are interpreted as physical grid sizes in map units.
+// repeated grid sizes are stored once in roughnessClassParams and referenced by class ID in rough
 void Terrain::addRoughness(const std::string& rasterPath,
     StepFunc stepFunc,
     std::uint64_t seed)

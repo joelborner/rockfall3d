@@ -46,9 +46,9 @@ struct StartPoint
     }
 };
 
+// Resolved file-system inputs and parsed simulation settings.
 struct BatchSimulationConfig
 {
-    // Resolved file-system inputs and parsed simulation settings.
     fs::path configPath;
     fs::path demPath;
     fs::path rockListPath;
@@ -541,9 +541,9 @@ inline std::vector<fs::path> load_path_list_file(const fs::path& path)
 }
 
 // Reads start-point files in one of two forms:
-// - X Y Z       : use absolute world-space release coordinates directly
-// - X Y Z dz    : ignore the given Z and instead place the rock dz above the
-//                 terrain (including optional roughness) at X/Y
+// X Y Z       : use absolute world-space release coordinates directly
+// X Y Z dz    : ignore the given Z and instead place the rock dz above the
+//               terrain (including optional roughness and initial orientation) at X/Y
 inline std::vector<StartPoint> load_start_points_file(const fs::path& path)
 {
     const auto lines = read_nonempty_lines(path);

@@ -15,6 +15,7 @@ struct StepEval
     Real deriv{};
 };
 
+// Evaluate the interpolation step function and its derivative at t in [0, 1]
 inline StepEval eval_step01(StepFunc step, Real t) noexcept
 {
     t = std::clamp(t, Real(0), Real(1));
@@ -61,9 +62,10 @@ inline void hashed_unit_gradient(std::uint64_t seed,
     Real& gy) noexcept
 {
     static constexpr Real invSqrt2 = Real(0.70710678118654752440);
+
+// Selecting from fixed unit gradients is much cheaper than generating
+// a fresh random direction for every queried lattice node.
     static constexpr std::array<std::array<Real, 2>, 8> gradients{ {
-        // Selecting from fixed unit gradients is much cheaper than generating
-        // a fresh random direction for every queried lattice node.
         { Real(1), Real(0) },
         { Real(-1), Real(0) },
         { Real(0), Real(1) },

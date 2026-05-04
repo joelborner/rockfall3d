@@ -7,12 +7,14 @@
 #include <string>
 #include <vector>
 
+// trajectory output format
 enum class OutputFormat : std::uint8_t
 {
     Text = 0,
     Binary = 1
 };
 
+// trajectory output field IDs
 enum class OutputFieldId : std::uint16_t
 {
     Time = 1,
@@ -57,6 +59,7 @@ struct OutputSettings
     std::vector<OutputFieldId> fields;
 };
 
+// turns a string to lowercase in-place
 inline std::string output_to_lower(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -65,6 +68,7 @@ inline std::string output_to_lower(std::string value)
     return value;
 }
 
+// returns the string for an output field
 inline std::string output_field_name(OutputFieldId field)
 {
     switch (field) {
@@ -112,6 +116,7 @@ inline std::uint32_t output_scalar_size(OutputScalarType type)
     return 4u;
 }
 
+// builds a memory layout for the specified output fields, returning a list of field descriptors and the total record size in bytes
 inline std::vector<OutputFieldDescriptor> build_output_layout(
     const std::vector<OutputFieldId>& fields,
     std::uint32_t& recordSize)
@@ -128,6 +133,7 @@ inline std::vector<OutputFieldDescriptor> build_output_layout(
     return layout;
 }
 
+// returns true if the specified output fields include any that require the minimum gap to be tracked during simulation (currently only JumpH)
 inline bool output_fields_require_min_gap(const std::vector<OutputFieldId>& fields)
 {
     return std::find(fields.begin(), fields.end(), OutputFieldId::JumpH) != fields.end();

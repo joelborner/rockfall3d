@@ -2,7 +2,7 @@
 #include "quickhull.hpp"
 #include <Eigen/Geometry>
 
-/* -------- ctor ----------------------------------------------------------- */
+
 Rock::Rock(MatX verts, Real rho, const Vec6& u0_in,
     const Eigen::Matrix<Real, 7, 1>& q0_in)
     : m_KrSP(std::move(verts)),
@@ -23,12 +23,12 @@ Rock Rock::withInitialState(const Vec6& u0_in,
     copy.m_q0 = q0_in;
     return copy;
 }
+
+// Build convex-hull-based volume, mass, center of mass, and inertia.
 void Rock::compute_mass_inertia_volume()
 {
-    /*-----------------------------------------------------------------
-    1. Build convex hull with quick_hull (header-only external library)
-    Copyright (c) 2014-2015, Anatoliy V. Tomilov)
-    -------------------------------------------------------------------*/
+
+    // Build convex hull with quick_hull (header-only external library) Copyright(c) 2014 - 2015, Anatoliy V.Tomilov)
     using Point = std::array<Real, 3>;
 
     // quickhull works on a STL-like point container. 
@@ -56,9 +56,7 @@ void Rock::compute_mass_inertia_volume()
     qh.create_initial_simplex(basis.begin(), std::prev(basis.end()));
     qh.create_convex_hull();
 
-    /* --------------------------------------------------------------------
-      // 2.  Copy facet indices and enforce a consistent outward orientation
-      -------------------------------------------------------------------- */
+    // 2.  Copy facet indices and enforce a consistent outward orientation
     std::vector<std::size_t> faces;             // 3 vertex indices per triangle
     faces.reserve(qh.facets_.size() * 3);
 
@@ -84,9 +82,7 @@ void Rock::compute_mass_inertia_volume()
     }
 
 
-    /* ------------------------------------------------------------
-       3.  Accumulate signed volume, first moment, and inertia
-       ------------------------------------------------------------ */
+    // 3.  Accumulate signed volume, first moment, and inertia
     Real  V = 0.0;
     Vec3  S1 = Vec3::Zero();
     Real  Ixx = 0, Iyy = 0, Izz = 0,
@@ -136,18 +132,14 @@ void Rock::compute_mass_inertia_volume()
         Izx += kOff * zx;                 // zx
     }
 
-    /* ------------------------------------------------------------
-       4.  Make the aggregate quantities positive if the hull winding
-       ------------------------------------------------------------ */
+    // 4.  Make the aggregate quantities positive if the hull winding
     if (V < Real(0)) {
         V = -V;  S1 = -S1;
         Ixx = -Ixx; Iyy = -Iyy; Izz = -Izz;
         Ixy = -Ixy; Iyz = -Iyz; Izx = -Izx;
     }      
 
-    /* ------------------------------------------------------------
-       5.  Shift inertia from the origin to the center of mass
-       ------------------------------------------------------------ */
+    // 5.  Shift inertia from the origin to the center of mass
     const Vec3 COM = S1 / V;       // vector from origin to COM
     m_mass = V * m_density;
 
@@ -162,9 +154,7 @@ void Rock::compute_mass_inertia_volume()
     Iyz -= V * cy * cz;
     Izx -= V * cz * cx;
 
-    /* ------------------------------------------------------------
-       6.  Apply material density and assemble the inertia tensor
-       ------------------------------------------------------------ */
+    // 6.  Apply material density and assemble the inertia tensor
     const Real rho = m_density;
     Ixx *= rho;  Iyy *= rho;  Izz *= rho;
     Ixy *= rho;  Iyz *= rho;  Izx *= rho;
@@ -174,9 +164,7 @@ void Rock::compute_mass_inertia_volume()
         -Ixy, Iyy, -Iyz,
         -Izx, -Iyz, Izz;
 
-    /* ------------------------------------------------------------
-       7.  Translate the point cloud so the body-frame origin is the COM
-       ------------------------------------------------------------ */
+    // 7.  Translate the point cloud so the body-frame origin is the COM
     for (std::size_t i = 0; i < m_nVert; ++i)
         m_KrSP.col(i) -= COM;
 }

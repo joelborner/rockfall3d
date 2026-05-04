@@ -17,9 +17,9 @@
 
 namespace fs = std::filesystem;
 
+// Identifiers stored in the binary trajectory header.
 struct TrajectoryMetadata
 {
-    // Identifiers stored in the binary trajectory header.
     std::size_t runIndex{};
     std::size_t rockIndex{};
     std::size_t startIndex{};
@@ -27,14 +27,14 @@ struct TrajectoryMetadata
     std::string caseName;
 };
 
+// Minimal state required by the recorder layer. Derived output variables
+// are computed from this payload when a sample is actually written.
 struct RecordedStepData
 {
-    // Minimal state required by the recorder layer. Derived output variables
-    // are computed from this payload when a sample is actually written.
-    Real t{ Real(0) };
-    Eigen::Matrix<Real, 7, 1> q = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();
-    Vec6 u = Vec6::Zero();
-    std::optional<Real> minGap;
+    Real t{ Real(0) };// time
+    Eigen::Matrix<Real, 7, 1> q = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalised coordinates
+    Vec6 u = Vec6::Zero();// generalised velocities
+    std::optional<Real> minGap;// jump height
 };
 
 struct RecordedTrajectoryLocation
@@ -66,6 +66,8 @@ public:
     virtual void abortActiveTrajectory() noexcept = 0;
 };
 
+// Compute the value of a recorded field from the raw step data. This is used
+// to populate the output fields during trajectory recording.
 inline double recorded_field_value(OutputFieldId field,
     const Rock& rock,
     const RecordedStepData& step)
@@ -104,6 +106,8 @@ inline double recorded_field_value(OutputFieldId field,
     return std::numeric_limits<double>::quiet_NaN();
 }
 
+// Trajectory recorder implementation that writes binary files in a custom format. 
+// The format is designed for efficient storage and fast sequential reading, but is not intended to be human-readable.
 class BinaryRecorder final : public TrajectoryRecorder
 {
 public:
@@ -167,6 +171,8 @@ public:
         nextDumpTime_ = step.t + dumpStep_;
     }
 
+	// Finalize the trajectory by writing any pending sample, updating the sample count and simulation seconds in the header, 
+    // and returning the location of the recorded trajectory in the output file.
     RecordedTrajectoryLocation endTrajectory(const RecordedStepData& finalStep,
         double simSeconds) override
     {
@@ -236,6 +242,8 @@ private:
         return static_cast<std::uint64_t>(pos);
     }
 
+	// Write the file header, which includes a magic number, version, field layout, and dump step. 
+    // This header is written once per output file and describes how the trajectory records are structured.
     void writeFileHeader()
     {
         const char magic[8] = { 'R', 'F', '3', 'D', 'B', 'I', 'N', '1' };
@@ -263,6 +271,7 @@ private:
         }
     }
 
+	// Write the trajectory header, which includes identifiers for the trajectory and placeholders for the sample count and simulation seconds.
     void writeTrajectoryHeader(const TrajectoryMetadata& meta)
     {
         const std::uint32_t marker = 0x314A5254u; // "TRJ1"
@@ -291,6 +300,7 @@ private:
         return static_cast<float>(value);
     }
 
+	// Write a single sample of trajectory data according to the selected output fields and their layout.
     void writeSample(const RecordedStepData& step)
     {
         requireActive();
@@ -338,6 +348,7 @@ private:
     Real lastWrittenTime_{ std::numeric_limits<Real>::quiet_NaN() };
 };
 
+// Trajectory recorder implementation that writes human-readable text files.
 class TextRecorder final : public TrajectoryRecorder
 {
 public:
@@ -367,6 +378,7 @@ public:
         writeFileHeader();
     }
 
+	// Begin a new trajectory, resetting the internal state and writing the initial step.
     void beginTrajectory(const TrajectoryMetadata& meta,
         const Rock& rock,
         const RecordedStepData& initialStep) override
@@ -386,6 +398,7 @@ public:
         writeSample(initialStep);
     }
 
+	// Called for every accepted step. the recorder itself decides whether the step falls onto a dump interval and therefore needs to be written.
     void onAcceptedStep(const RecordedStepData& step) override
     {
         requireActive();
@@ -397,6 +410,7 @@ public:
         nextDumpTime_ = step.t + dumpStep_;
     }
 
+	// Finalize the trajectory by writing any pending sample and returning the location of the recorded trajectory in the output file.
     RecordedTrajectoryLocation endTrajectory(const RecordedStepData& finalStep,
         double) override
     {

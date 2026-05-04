@@ -5,7 +5,6 @@
 // Build the contact operators W_N, W_T1, W_T2 for the active contact set.
 // Each column corresponds to one contact vertex and maps generalized velocity
 // to normal / tangential point velocity at that contact.
-
 inline void make_Wmat(const Rock& rock,
     const std::uint32_t* I_N,
     std::size_t nN,

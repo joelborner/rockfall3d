@@ -36,6 +36,8 @@ inline Real dem_grad_x_at(const Terrain& dem,
     return (Real(1) - xi) * gx00 + xi * gx01;
 }
 
+// DEM gradient interpolation reuses the precomputed node gradients and only
+// needs to be done for contact vertices.
 inline Real dem_grad_y_at(const Terrain& dem,
     std::uint32_t row,
     std::uint32_t col,

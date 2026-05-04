@@ -9,6 +9,10 @@
 #include <stdexcept>
 #include <string>
 
+// Exports the terrain to an ASCII raster file with the given resolution. 
+// The output grid is aligned with the DEM grid and covers the same extent, but may have fewer rows and columns. 
+// The output height values include roughness if present. 
+// The output file is in a simple format with a header followed by rows of space-separated height values, starting from the top row (maximum y) to the bottom row (minimum y).
 inline void export_sampled_terrain_asc(const Terrain& dem,
     const std::string& path,
     Real resolution)
@@ -16,11 +20,8 @@ inline void export_sampled_terrain_asc(const Terrain& dem,
     if (resolution <= Real(0)) {
         throw std::runtime_error("terrain export resolution must be positive");
     }
-
     const Real width = Real(dem.nx - 1) * dem.cell;
     const Real height = Real(dem.ny - 1) * dem.cell;
-    // Match MATLAB's xll:drawsize:x(end) and yll:drawsize:y(end) behavior:
-    // keep stepping by resolution until the next point would overshoot.
     const std::uint32_t ncols = static_cast<std::uint32_t>(std::floor(width / resolution)) + 1u;
     const std::uint32_t nrows = static_cast<std::uint32_t>(std::floor(height / resolution)) + 1u;
     if (ncols < 2 || nrows < 2) {

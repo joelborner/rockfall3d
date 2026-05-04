@@ -71,6 +71,8 @@ inline void add_shapefile_field(OGRLayerH layer,
 #endif
 }
 
+// Writes deposition point records to a shapefile in the specified output directory, using the given projection for spatial reference.
+// The shapefile will contain one point feature per valid record, with attributes containing trajectory information.
 inline void write_deposition_points_shapefile(const fs::path& outputDir,
     const DepositionPointOutputConfig& config,
     const std::string& projectionWkt,

@@ -17,7 +17,7 @@ joel.borner@slf.ch
 - roughness model based on Perlin noise
 - deterministic random orientation and roughness, reproducible with seeds
 - shared-memory, thread-based parallel execution
-- trajectory or raster output
+- trajectory and/or raster output
 - optional terrain export and debugging options
 
 ## Repository Layout
@@ -225,6 +225,10 @@ Optional attributes:
 |---|---|---|
 | `step_func` | `smoothstep` | Interpolation method used in the roughness model. Current options: `linear`, `smoothstep`, `smootherstep` |
 
+Notes on roughness raster:
+ - Grid size of the roughness raster should be at least 2x bigger than its highest value.
+ - Values in roughness raster should be smaller than DEM resolution
+
 ### `<output>...</output>`
 
 This tag is optional.
@@ -248,7 +252,7 @@ Required attributes:
 | Attribute | Meaning |
 |---|---|
 | `format` | Output format: `binary` or `text` |
-| `metric` | Comma-separated trajectory metrics |
+| `metric` | Comma-separated trajectory metrics (see table below) |
 
 #### `<raster/>`
 
@@ -258,7 +262,7 @@ Required attributes:
 
 | Attribute | Meaning |
 |---|---|
-| `metric` | Raster metric to aggregate. Use `count` for number of rocks |
+| `metric` | Raster metric to aggregate (see table below) |
 | `resolution` | Output raster resolution |
 
 Optional attributes:
@@ -363,7 +367,7 @@ Notes:
 <output>
   <trajectory
       format="binary"
-      metric="t,x,y,z,qw,qx,qy,qz,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
+      metric="t,x,y,z,quat,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
   <raster
       metric="ekin_tot"
       resolution="2.0"
