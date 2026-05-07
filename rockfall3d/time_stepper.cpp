@@ -163,13 +163,15 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             bool converged = false;
             if (stepper.solverType == ContactSolverType::SorProx) {
                 const SorProjectResult solve = sor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
-                    mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+                    mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
+                    stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
             }
             else {
                 const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
-                    mu, stepper.alpha, stepper.atol, stepper.rtol, stepper.maxiter);
+                    mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
+                    stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
             }

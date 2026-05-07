@@ -92,6 +92,8 @@ public:
     Real alpha = Real(0.5);
     Real atol = Real(1e-8);
     Real rtol = Real(1e-6);
+    Real epsilonN = Real(0);
+    Real epsilonT = Real(0);
     std::uint32_t maxiter = 10000;
 
     // Run and keep all dumped states in memory.

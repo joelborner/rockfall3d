@@ -173,6 +173,8 @@ Optional attributes:
 | Attribute | Default if omitted | Meaning |
 |---|---|---|
 | `dump_step` | falls back to `dt` | Output sampling interval |
+| `en` | `0` | Normal restitution coefficient, must be in `[0,1]` |
+| `et` | `0` | Tangential restitution coefficient, must be in `[0,1]` |
 | `parallel_threads` | `1` | Number of parallel worker threads requested |
 | `random_seed` | random device | Fallback seed for both orientation and roughness if dedicated seeds are omitted |
 | `orientation_seed` | `random_seed` if provided, otherwise random device | Seed for random orientations |
@@ -182,6 +184,7 @@ Notes:
 
 - If `parallel_threads="0"` is given, it is clamped to `1`.
 - The code clamps the requested thread count to the number of available logical processors.
+- If `en` and `et` are omitted, the solver uses the current fully inelastic impact law with zero restitution.
 
 ### `<stop/>`
 
@@ -341,6 +344,8 @@ Notes:
     mu="0.5"
     dt="0.002"
     dump_step="0.02"
+    en="0.0"
+    et="0.0"
     output_dir="output"
     parallel_threads="20"
     orientation_seed="12345"

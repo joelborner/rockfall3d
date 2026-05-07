@@ -15,6 +15,9 @@ struct ContactSolverWorkspace
     MatX MWN;
     MatX MWT1;
     MatX MWT2;
+    ArrX gammaNA;
+    ArrX gammaT1A;
+    ArrX gammaT2A;
     ArrX PNsub;
     MatX PTsub;
 
@@ -31,6 +34,11 @@ struct ContactSolverWorkspace
         }
         if (PNsub.size() < nI) {
             PNsub.resize(nI);
+        }
+        if (gammaNA.size() < nI) {
+            gammaNA.resize(nI);
+            gammaT1A.resize(nI);
+            gammaT2A.resize(nI);
         }
         if (PTsub.rows() < nI) {
             PTsub.resize(nI, 2);
@@ -52,6 +60,7 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     std::size_t nN,
     const Mat6& MM_inv, const Vec6& rhs, const Vec6& uA,
     Real mu, Real alpha,
+    Real epsilonN, Real epsilonT,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
     if (nN == 0) {
@@ -65,6 +74,9 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     auto MWN = ws.MWN.leftCols(nNI);
     auto MWT1 = ws.MWT1.leftCols(nNI);
     auto MWT2 = ws.MWT2.leftCols(nNI);
+    auto gammaNA = ws.gammaNA.head(nNI);
+    auto gammaT1A = ws.gammaT1A.head(nNI);
+    auto gammaT2A = ws.gammaT2A.head(nNI);
     auto PN = ws.PNsub.head(nNI);
     auto PT = ws.PTsub.topRows(nNI);
 
@@ -91,6 +103,13 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     const Real rN = alpha / maxDiagN;
     const Real rT = alpha / maxDiagT;
     const Vec6 base = uA + MM_inv * rhs;
+    const bool zeroRestitution = (epsilonN == Real(0) && epsilonT == Real(0));
+
+    if (!zeroRestitution) {
+        gammaNA.matrix().noalias() = WN.transpose() * uA;
+        gammaT1A.matrix().noalias() = WT1.transpose() * uA;
+        gammaT2A.matrix().noalias() = WT2.transpose() * uA;
+    }
 
     Vec6 uE = base;
     bool converged = false;
@@ -119,10 +138,13 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
             const Real gammaN = WN.col(j).dot(uE);
             const Real gammaT1 = WT1.col(j).dot(uE);
             const Real gammaT2 = WT2.col(j).dot(uE);
+            const Real XiN = zeroRestitution ? gammaN : (gammaN + epsilonN * gammaNA(j));
+            const Real XiT1 = zeroRestitution ? gammaT1 : (gammaT1 + epsilonT * gammaT1A(j));
+            const Real XiT2 = zeroRestitution ? gammaT2 : (gammaT2 + epsilonT * gammaT2A(j));
 
-            const Real newPN = std::max(oldPN - rN * gammaN, Real(0));
-            const Real zx = oldPTx - rT * gammaT1;
-            const Real zy = oldPTy - rT * gammaT2;
+            const Real newPN = std::max(oldPN - rN * XiN, Real(0));
+            const Real zx = oldPTx - rT * XiT1;
+            const Real zy = oldPTy - rT * XiT2;
             const Real nz = std::hypot(zx, zy);
 
             Real newPTx = zx;

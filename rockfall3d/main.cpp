@@ -401,6 +401,8 @@ TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
     step.alpha = cfg.solver.alpha;
     step.atol = cfg.solver.atol;
     step.rtol = cfg.solver.rtol;
+    step.epsilonN = cfg.epsilonN;
+    step.epsilonT = cfg.epsilonT;
     step.maxiter = cfg.solver.maxiter;
     return step;
 }

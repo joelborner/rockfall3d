@@ -68,6 +68,8 @@ struct BatchSimulationConfig
     std::uint32_t randomOrientations{ 1 };
     Real rockDensity{ Real(2500.0) };
     Real mu{ Real(0.5) };
+    Real epsilonN{ Real(0) };
+    Real epsilonT{ Real(0) };
     Real dt{ Real(0.002) };
     std::optional<Real> dumpStep;
     std::optional<std::uint64_t> randomSeed;
@@ -623,6 +625,18 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.startPointsPath = resolve_relative(baseDir, require_attr(*startsTag, "list", "starts"));
 
     cfg.mu = parse_number<Real>(require_attr(*simulationTag, "mu", "simulation"), "mu");
+    if (const auto enAttr = optional_attr(*simulationTag, "en")) {
+        cfg.epsilonN = parse_number<Real>(*enAttr, "en");
+        if (!(cfg.epsilonN >= Real(0) && cfg.epsilonN <= Real(1))) {
+            throw std::runtime_error("en must be in [0, 1]");
+        }
+    }
+    if (const auto etAttr = optional_attr(*simulationTag, "et")) {
+        cfg.epsilonT = parse_number<Real>(*etAttr, "et");
+        if (!(cfg.epsilonT >= Real(0) && cfg.epsilonT <= Real(1))) {
+            throw std::runtime_error("et must be in [0, 1]");
+        }
+    }
     cfg.dt = parse_number<Real>(require_attr(*simulationTag, "dt", "simulation"), "dt");
     if (const auto dumpAttr = optional_attr(*simulationTag, "dump_step")) {
         cfg.dumpStep = parse_number<Real>(*dumpAttr, "dump_step");
