@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "rockfall3d",
+  "version-string": "0.1.0",
+  "builtin-baseline": "6df3270abdba60f18ec48308dbd72ece94729e1e",
+  "dependencies": [
+    "eigen3",
+    {
+      "name": "gdal",
+      "default-features": false
+    }
+  ]
+}
