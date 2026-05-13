@@ -1,0 +1,49 @@
+name: Build and Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Install dependencies
+        run: |
+          vcpkg install eigen3:x64-windows
+          vcpkg install gdal:x64-windows
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/windows-release `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+
+      - name: Build
+        run: |
+          cmake --build build/windows-release --config Release
+
+      - name: Run test
+        run: |
+          .\build\windows-release\Release\rockfall3d.exe .\sample_data\test_sim\test_sim.xml
+
+      - name: Check outputs
+        run: |
+          if (-not (Test-Path .\sample_data\test_sim\output\manifest.csv)) { throw "manifest missing" }
+          if (-not (Test-Path .\sample_data\test_sim\output\deposition_points.shp)) { throw "shapefile missing" }
+          if (-not (Test-Path .\sample_data\test_sim\output\trajectories_001.rfbin)) { throw "trajectories missing" }
+          if (-not (Test-Path .\sample_data\test_sim\output\count_rocks.tif)) { throw "raster missing" }
+
