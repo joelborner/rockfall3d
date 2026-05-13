@@ -1,0 +1,48 @@
+<rockfall3d/>
+
+<terrain dem="dem.tif"/>
+
+<rocks
+    list="rocks.txt"
+    density="2500"
+    random_orientations="3"/>
+
+<starts list="release_points.txt"/>
+
+<simulation
+    mu="1"
+    en="0"
+    et="0"
+    dt="0.002"
+    dump_step="0.02"
+    output_dir="output"
+    parallel_threads="1"
+    orientation_seed="12345"
+    roughness_seed="67890"/>
+
+<output>
+  <trajectory
+      format="binary"
+      metric="time,x,y,z,qw,qx,qy,qz,ekin_tot,jumpH"/>
+  <raster metric="ekin_tot" resolution="2" statistic="percentile" p="95"/>
+  <raster metric="count" resolution="2"/>
+  <shape metric="deposition"/>
+</output>
+
+<stop
+    max_time="200"
+    max_steps="1000000"
+    settle_min_steps="100"
+    settle_linear_speed="0.1"
+    settle_angular_speed="0.1"/>
+
+<solver
+    type="sor-prox"
+    alpha="1"
+    atol="1e-08"
+    rtol="1e-06"
+    maxiter="10000"/>
+
+<roughness
+    raster="roughness_class.tif"
+    step_func="smoothstep"/>
