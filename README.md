@@ -24,62 +24,65 @@ joel.borner@slf.ch
 
 - [`rockfall3d/`](rockfall3d): source code
 - [`sample_data/`](sample_data): example XML files and sample inputs
-- [`rockfall3d.sln`](rockfall3d.sln): Visual Studio solution
+- [`CMakeLists.txt`](CMakeLists.txt): CMake build configuration
+- [`CMakePresets.json`](CMakePresets.json): CMake presets for the tested Windows build
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md): bundled third-party attribution
 - [`REFERENCES.md`](REFERENCES.md): conceptual references for important methods used in the code
 
-## Dependencies
+## Requirements
 
 ### Bundled in the repository
 
 - Quickhull by Anatoliy V. Tomilov, bundled in [`rockfall3d/external/quickhull/include/quickhull.hpp`](rockfall3d/external/quickhull/include/quickhull.hpp)
 
-### External dependencies
-
-- Visual Studio 2022 with MSVC toolset (`v143`)
+- CMake 3.21 or newer
+- a C++17 compiler
 - Eigen 3.4.x
 - GDAL
-- vcpkg is recommended for installing GDAL on Windows
 
-Notes:
+## Platform
 
-- The checked-in Visual Studio project currently builds with `WITH_GDAL` enabled.
-- Quickhull is bundled, so it does not need to be installed separately.
-- The project file currently references Eigen through a local include path; you may need to update that path on your machine.
+- currently tested on Windows
+- Linux and macOS are not officially supported yet
 
 ## Installation on Windows
 
-### 1. Install Visual Studio
-
-Install Visual Studio 2022 with the Desktop development with C++ workload.
-
-### 2. Install vcpkg and GDAL
-
-Install [vcpkg](https://github.com/microsoft/vcpkg), then install GDAL for x64 Windows:
+Install [vcpkg](https://github.com/microsoft/vcpkg), then install the required packages:
 
 ```powershell
+vcpkg install eigen3:x64-windows
 vcpkg install gdal:x64-windows
 vcpkg integrate install
 ```
 
-### 3. Install Eigen
+The tested build path uses the Microsoft C++ toolchain (MSVC). If Eigen is installed manually instead of through vcpkg, configure CMake with `-DEIGEN3_INCLUDE_DIR=...`.
 
-Download Eigen 3.4.x and make sure the include directory is available to the project.
+## Build
 
-The current project file references Eigen via `AdditionalIncludeDirectories` in [`rockfall3d/rockfall3d.vcxproj`](rockfall3d/rockfall3d.vcxproj), so you may need to update that path to match your local installation.
+Using the included preset:
 
-### 4. Build
+```powershell
+$env:VCPKG_ROOT="C:\path\to\vcpkg"
+cmake --preset windows-release
+cmake --build --preset windows-release
+```
 
-From Visual Studio:
+Equivalent manual commands:
 
-1. Open [`rockfall3d.sln`](rockfall3d.sln)
-2. Select `Release | x64`
-3. Build the solution
+```powershell
+cmake -S . -B build\windows-release `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake"
+
+cmake --build build\windows-release --config Release
+```
+
+If CMake does not find Eigen automatically, add `-DEIGEN3_INCLUDE_DIR=...` to the configure command.
 
 The executable is written to:
 
 ```text
-x64\Release\rockfall3d.exe
+build\windows-release\Release\rockfall3d.exe
 ```
 
 ## Running
@@ -87,7 +90,7 @@ x64\Release\rockfall3d.exe
 The executable expects exactly one argument: the XML config file.
 
 ```powershell
-.\rockfall3d.exe path\to\config.xml
+.\build\windows-release\Release\rockfall3d.exe path\to\config.xml
 ```
 
 ## Input Files Referenced by XML
@@ -424,18 +427,7 @@ If `<shape metric="deposition" .../>` is given inside `<output>`, the simulator 
 
 - `deposition_points.shp`
 
-Each point stores the final accepted trajectory coordinate as 3D point geometry and writes the following attributes into the DBF:
-
-- `run_idx`
-- `rock_idx`
-- `rock_path`
-- `start_idx`
-- `orient_idx`
-- `start_x`
-- `start_y`
-- `start_z`
-- `status`
-- `stop_crit`
+Each point stores the final accepted trajectory coordinate as 3D point geometry and writes additional attributes into the DBF.
 
 ### Timing report
 

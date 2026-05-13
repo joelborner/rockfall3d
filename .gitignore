@@ -1,5 +1,10 @@
 .vs/
 x64/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
 *.user
 *.VC.db
 *.VC.opendb
