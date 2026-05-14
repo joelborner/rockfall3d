@@ -40,6 +40,8 @@ joel.borner@slf.ch
 
 - Quickhull by Anatoliy V. Tomilov, bundled in [`rockfall3d/external/quickhull/include/quickhull.hpp`](rockfall3d/external/quickhull/include/quickhull.hpp)
 
+### External requirements
+
 - CMake 3.21 or newer
 - a C++17 compiler
 - Eigen 3.4.x
