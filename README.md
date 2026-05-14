@@ -28,6 +28,9 @@ joel.borner@slf.ch
 - [`sample_data/`](sample_data): example XML files and sample inputs
 - [`CMakeLists.txt`](CMakeLists.txt): CMake build configuration
 - [`CMakePresets.json`](CMakePresets.json): CMake presets for the tested Windows build
+- [`vcpkg.json`](vcpkg.json): vcpkg dependency manifest used by local builds and CI
+- [`.github/workflows/`](.github/workflows): GitHub Actions workflows for automated build and test runs
+- [`vcpkg-triplets/`](vcpkg-triplets): custom vcpkg triplets used for optimized CI/release builds
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md): bundled third-party attribution
 - [`REFERENCES.md`](REFERENCES.md): conceptual references for important methods used in the code
 
@@ -49,13 +52,14 @@ joel.borner@slf.ch
 
 ## Installation on Windows
 
-Install [vcpkg](https://github.com/microsoft/vcpkg), then install the required packages:
+Install [vcpkg](https://github.com/microsoft/vcpkg) and bootstrap it:
 
 ```powershell
-vcpkg install eigen3:x64-windows
-vcpkg install gdal:x64-windows
-vcpkg integrate install
+git clone https://github.com/microsoft/vcpkg.git
+.\vcpkg\bootstrap-vcpkg.bat
 ```
+
+The repository uses `vcpkg.json` manifest mode. When CMake is configured with the vcpkg toolchain file, project dependencies are resolved automatically from the manifest.
 
 The tested build path uses the Microsoft C++ toolchain (MSVC). If Eigen is installed manually instead of through vcpkg, configure CMake with `-DEIGEN3_INCLUDE_DIR=...`.
 
