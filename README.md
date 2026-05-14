@@ -1,5 +1,7 @@
 # rockfall3d
 
+[![Build and Test](https://github.com/joelborner/rockfall3d/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/joelborner/rockfall3d/actions/workflows/build-and-test.yml)
+
 `rockfall3d` is a C++ rigid-body rockfall simulator for batch trajectory simulations on raster DEMs with roughness.
 
 ## Contact
