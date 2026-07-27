@@ -1,6 +1,6 @@
 #pragma once
+#include "convex_polyhedron.hpp"
 #include "math_alias.hpp"
-#include <vector>
 
 // Rigid geometric/mechanical description of one rock shape together with
 // an initial state used to start a trajectory. Geometry is stored in the body
@@ -15,35 +15,46 @@ public:
         const Vec6& u0_in,
         const Eigen::Matrix<Real, 7, 1>& q0_in);
 
+    // Construct directly from an already valid convex mesh. Fragmentation
+    // uses this path to avoid rebuilding a convex hull after every cut.
+    explicit Rock(ConvexPolyhedron geometry, Real density,
+        const Vec6& u0_in,
+        const Eigen::Matrix<Real, 7, 1>& q0_in);
+
     // Reuse the same geometric data but replace the initial state.
     Rock withInitialState(const Vec6& u0_in,
         const Eigen::Matrix<Real, 7, 1>& q0_in) const;
 
     // Geometric data
-    std::size_t   nVert() const noexcept { return m_nVert; }
-    const MatX& verticesK() const noexcept { return m_KrSP; }
+
+    std::size_t   nVert() const noexcept { return m_nVert; } // number of vertics
+	const MatX& verticesK() const noexcept { return m_geometry.vertices; } // 3 x n body-frame vertices, COM at origin
+	const ConvexPolyhedron& polyhedronK() const noexcept { return m_geometry; } // convex body-frame mesh, COM at origin
     Real          mass() const noexcept { return m_mass; }
+    Real          density() const noexcept { return m_density; }
     const Mat3& inertiaK() const noexcept { return m_theta; }
     const Mat6& massMatrix() const noexcept { return m_MM; }
-    const MatX& skewConcat() const noexcept { return m_KrSP_t; }
+	const MatX& skewConcat() const noexcept { return m_KrSP_t; } // concatenated skew matrices [tilde(r1) ... tilde(rn)]
 
     // initial state
     const Vec6& u0() const noexcept { return m_u0; }
     const Eigen::Matrix<Real, 7, 1>& q0() const noexcept { return m_q0; }
+	const Vec3& inputCenterOfMassK() const noexcept { return m_inputCenterOfMassK; } // center of mass of the input mesh, before shifting to origin
 
 private:
-    MatX m_KrSP;                      // 3 x n body-frame vertices, COM at origin
+    ConvexPolyhedron m_geometry;       // convex body-frame mesh, COM at origin
     MatX m_KrSP_t;                    // concatenated skew matrices [tilde(r1) ... tilde(rn)]
     std::size_t m_nVert{};
     Real        m_density{};
     Real        m_mass{};
     Mat3        m_theta{};            // inertia tensor in body frame K
     Mat6        m_MM{};               // block-diagonal generalized mass matrix
+    Vec3        m_inputCenterOfMassK = Vec3::Zero();
 
     Vec6                      m_u0;
     Eigen::Matrix<Real, 7, 1> m_q0;
 
-    // Build convex-hull-based volume, mass, center of mass, and inertia.
+    // Derive volume, mass, center of mass, and inertia from the convex mesh.
     void compute_mass_inertia_volume();
 
     // Precompute matrices reused throughout contact assembly and time stepping.

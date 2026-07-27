@@ -15,3 +15,4 @@ Makefile
 *.ilk
 *.tlog
 *.log
+/sample_data/test_sim/output*/

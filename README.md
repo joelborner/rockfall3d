@@ -243,6 +243,41 @@ Notes on roughness raster:
  - Grid size of the roughness raster should be at least 2x bigger than its highest value.
  - Values in roughness raster should be smaller than DEM resolution
 
+### `<fragmentation/>`
+
+This optional, experimental tag enables impact-driven fragmentation. The current model retains one convex fragment and discards chipped material; terrain classes are not distinguished yet.
+
+Required attributes:
+
+| Attribute | Meaning |
+|---|---|
+| `threshold_specific_energy` | Normal impact-work threshold per current rock mass [J/kg]. No fragmentation occurs at or below this value |
+| `half_specific_energy` | Specific impact work [J/kg] at which the maximum removable fraction is reached; must exceed the threshold |
+
+Optional attributes:
+
+| Attribute | Default if omitted | Meaning |
+|---|---|---|
+| `exponent` | `2` | Exponent controlling how quickly the removed fraction grows above the threshold |
+| `max_removed_fraction` | `0.5` | Maximum mass fraction removed in one accepted timestep; must be in `(0, 0.5]` |
+| `shape_output_dir` | `fragment_shapes` | Relative directory below `output_dir` for archived fragment point clouds |
+
+The intact rock is used for contact detection and the complete contact solve. For contact `j`, the dissipated normal impact-work proxy is
+
+`D_j = max(0, -0.5 Lambda_N,j (gamma_N,j^- + gamma_N,j^+))`.
+
+The specific severity is `s = sum(D_j) / mass`. The target removed fraction is
+
+`f = max_removed_fraction * clamp((s - threshold) / (half - threshold), 0, 1)^exponent`.
+
+Simultaneous contacts share this target fraction in proportion to `D_j`; their cut normals are determined from the same solved intact state and applied at the accepted timestep boundary. Each cut removes between 90% and 100% of its allocated volume, so `max_removed_fraction` remains a hard upper bound. The retained fragment receives a recomputed center of mass, mass, inertia tensor, and contact geometry. There is no cooldown or artificial event-count limit. Resting support impulses have approximately zero pre/post-contact normal velocity and therefore approximately zero `D_j`.
+
+The initial point cloud is converted once to a convex polygon mesh. Fragmentation clips that mesh directly and computes volume during the cut search without repeatedly rebuilding a convex hull. Mass, center of mass, and inertia are integrated once from the final retained geometry.
+
+This first model does not create or track daughter fragments, subtract a separate fracture-energy budget, distinguish terrain materials, or apply fracture recoil. Its parameters require experimental calibration. Since severity is divided by current mass, very low thresholds can produce a physically fragile cascade toward progressively smaller fragments.
+
+When fragmentation and trajectory output are both enabled, `mass` and `shape_index` are appended automatically to the requested trajectory fields.
+
 ### `<output>...</output>`
 
 This tag is optional.
@@ -318,6 +353,8 @@ Valid metric names / aliases:
 | `ekin_rot` | Kinetic rotational energy [J] | X | X |  |
 | `ekin_tot` | Kinetic energy [J] | X | X |  |
 | `jumpH` | Jump height [m] | X | X |  |
+| `mass` | Current retained rock mass [kg] | X |  |  |
+| `shape_index` | Current fragment point-cloud index | X |  |  |
 | `count` | Number of contributing trajectories per raster cell |  | X |  |
 | `deposition` | Final accepted deposition point per trajectory |  |  | X |
 
@@ -380,6 +417,13 @@ Notes:
     raster="data/roughness_grid_size.tif"
     step_func="smoothstep"/>
 
+<!-- Illustrative fragmentation values; calibrate for the intended material. -->
+<fragmentation
+    threshold_specific_energy="5.0"
+    half_specific_energy="100.0"
+    exponent="2"
+    max_removed_fraction="0.5"/>
+
 <output>
   <trajectory
       format="binary"
@@ -436,6 +480,16 @@ If `<shape metric="deposition" .../>` is given inside `<output>`, the simulator 
 - `deposition_points.shp`
 
 Each point stores the final accepted trajectory coordinate as 3D point geometry and writes additional attributes into the DBF.
+
+### Fragment shapes
+
+If `<fragmentation .../>` is enabled, the simulator writes one directory per trajectory below `fragment_shapes` (or `shape_output_dir`). Each directory contains:
+
+- `shape_000000.pts` for the initial COM-centred point cloud
+- one numbered `.pts` file for every accepted fragmentation event
+- `shapes.csv`, mapping each `shape_index` to event time, mass, vertex count, and file name
+
+The `fragment_shape_dir` column in `manifest.csv` locates this directory. The trajectory pose transforms the COM-centred point cloud identified by `shape_index` into world coordinates.
 
 ### Timing report
 

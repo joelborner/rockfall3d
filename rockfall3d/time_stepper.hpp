@@ -3,6 +3,7 @@
 #include "rock.hpp"
 #include "terrain.hpp"
 #include "contact_wmat.hpp"
+#include "fragmentation.hpp"
 #include "jor_solver.hpp"
 #include "sor_solver.hpp"
 
@@ -72,6 +73,9 @@ struct TimeStepperRunSummary
     Eigen::Matrix<Real, 7, 1> qFinal = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalized coordinates at stop
     Vec6 uFinal = Vec6::Zero();// generalized velocities at stop
     std::optional<Real> minGapFinal;// minimum gap at stop
+	Real massFinal{ Real(0) }; // mass at stop
+	Mat3 inertiaFinal = Mat3::Zero(); // inertia at stop
+	std::uint32_t shapeIndexFinal{ 0 }; // index of the last shape written to disk, if fragmentation was enabled
     TimeStepperStopReason stopReason{ TimeStepperStopReason::Unknown };// reason for stopping
 };
 
@@ -95,6 +99,7 @@ public:
     Real epsilonN = Real(0);
     Real epsilonT = Real(0);
     std::uint32_t maxiter = 10000;
+    std::optional<FragmentationConfig> fragmentation;
 
     // Run and keep all dumped states in memory.
     TimeStepperResult run(Real mu,
@@ -117,7 +122,8 @@ public:
         const Rock& rock,
         Real dt,
         TrajectoryRecorder& recorder,
-        const TimeStepperStopCriteria& stop = {}) const;
+        const TimeStepperStopCriteria& stop = {},
+        FragmentationShapeWriter* shapeWriter = nullptr) const;
 
     // Recorder-based run with caller-owned scratch storage.
     TimeStepperRunSummary runRecorded(Real mu,
@@ -126,6 +132,7 @@ public:
         Real dt,
         TimeStepperWorkspace& workspace,
         TrajectoryRecorder& recorder,
-        const TimeStepperStopCriteria& stop = {}) const;
+        const TimeStepperStopCriteria& stop = {},
+        FragmentationShapeWriter* shapeWriter = nullptr) const;
 };
 

@@ -16,8 +16,12 @@ add_executable(rockfall3d
     rockfall3d/time_stepper.cpp
     rockfall3d/config_io.hpp
     rockfall3d/contact_wmat.hpp
+    rockfall3d/convex_polyhedron.cpp
+    rockfall3d/convex_polyhedron.hpp
     rockfall3d/deposition_output.hpp
     rockfall3d/fast_io.hpp
+    rockfall3d/fragmentation.cpp
+    rockfall3d/fragmentation.hpp
     rockfall3d/jor_solver.hpp
     rockfall3d/math_alias.hpp
     rockfall3d/polygon_utils.hpp

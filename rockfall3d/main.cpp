@@ -404,6 +404,7 @@ TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
     step.epsilonN = cfg.epsilonN;
     step.epsilonT = cfg.epsilonT;
     step.maxiter = cfg.solver.maxiter;
+    step.fragmentation = cfg.fragmentation;
     return step;
 }
 
@@ -568,6 +569,9 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 job.rockIndex + 1,
                 job.startIndex + 1,
                 static_cast<std::size_t>(job.orientationIndex + 1));
+            const std::string fragmentShapeDirectory = cfg.fragmentation
+                ? (cfg.fragmentation->shapeOutputDirectory / caseName).generic_string()
+                : std::string();
             try {
                 // generate initial conditions
                 const InitialPoseResult initialPlacement = make_initial_pose(
@@ -582,6 +586,15 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     Vec6::Zero(),
                     initialPlacement.pose);
                 manifestStartZ = initialPlacement.pose(2);
+
+                std::unique_ptr<FragmentationShapeWriter> fragmentationShapeWriter;
+                if (cfg.fragmentation) {
+                    fragmentationShapeWriter = std::make_unique<FragmentationShapeWriter>(
+                        cfg.outputDir,
+                        cfg.fragmentation->shapeOutputDirectory,
+                        caseName);
+                    fragmentationShapeWriter->write(0, Real(0), runRock);
+                }
 
                 const auto t0 = std::chrono::high_resolution_clock::now();
                 std::size_t writtenSamples = 0;
@@ -607,7 +620,10 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         Real(0),
                         runRock.q0(),
                         runRock.u0(),
-                        initialPlacement.initialMinGap
+                        initialPlacement.initialMinGap,
+                        runRock.mass(),
+                        runRock.inertiaK(),
+                        0
                     };
                     if (cfg.rasterOutput.has_value()) {
                         CompositeTrajectoryRecorder recorder(*trajectoryRecorder, *rasterRecorder);
@@ -619,7 +635,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                             cfg.dt,
                             workspace,
                             recorder,
-                            cfg.stop);
+                            cfg.stop,
+                            fragmentationShapeWriter.get());
                     }
                     else {
                         trajectoryRecorder->beginTrajectory(meta, runRock, initialStep);
@@ -630,7 +647,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                             cfg.dt,
                             workspace,
                             *trajectoryRecorder,
-                            cfg.stop);
+                            cfg.stop,
+                            fragmentationShapeWriter.get());
                     }
                     hasRecordedSummary = true;
                     finalStopReason = recordedSummary.stopReason;
@@ -649,7 +667,10 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         Real(0),
                         runRock.q0(),
                         runRock.u0(),
-                        initialPlacement.initialMinGap
+                        initialPlacement.initialMinGap,
+                        runRock.mass(),
+                        runRock.inertiaK(),
+                        0
                         });
 
                     recordedSummary = step.runRecorded(
@@ -659,7 +680,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         cfg.dt,
                         workspace,
                         *rasterRecorder,
-                        cfg.stop);
+                        cfg.stop,
+                        fragmentationShapeWriter.get());
                     hasRecordedSummary = true;
                     finalStopReason = recordedSummary.stopReason;
                     acceptedStepCount = recordedSummary.acceptedSteps;
@@ -673,7 +695,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         cfg.dt,
                         workspace,
                         nullRecorder,
-                        cfg.stop);
+                        cfg.stop,
+                        fragmentationShapeWriter.get());
                     hasRecordedSummary = true;
                     finalStopReason = recordedSummary.stopReason;
                     acceptedStepCount = recordedSummary.acceptedSteps;
@@ -687,7 +710,10 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         recordedSummary.tFinal,
                         recordedSummary.qFinal,
                         recordedSummary.uFinal,
-                        recordedSummary.minGapFinal
+                        recordedSummary.minGapFinal,
+                        recordedSummary.massFinal,
+                        recordedSummary.inertiaFinal,
+                        recordedSummary.shapeIndexFinal
                     };
                     if (cfg.output.enabled) {
                         if (cfg.rasterOutput.has_value()) {
@@ -745,7 +771,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << csv_quoted(trajectoryStorage) << ','
                     << byteOffset << ','
                     << simSeconds << ','
-                    << writtenSamples;
+                    << writtenSamples << ','
+                    << csv_quoted(fragmentShapeDirectory);
                 manifestLines[job.runIndex] = line.str();
                 finishedJobs.fetch_add(1);
                 if (failed) {
@@ -784,7 +811,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << csv_quoted("") << ','
                     << 0 << ','
                     << 0 << ','
-                    << 0;
+                    << 0 << ','
+                    << csv_quoted(fragmentShapeDirectory);
                 manifestLines[job.runIndex] = line.str();
                 finishedJobs.fetch_add(1);
                 skippedJobs.fetch_add(1);
@@ -815,7 +843,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     << csv_quoted("") << ','
                     << 0 << ','
                     << 0 << ','
-                    << 0;
+                    << 0 << ','
+                    << csv_quoted(fragmentShapeDirectory);
                 manifestLines[job.runIndex] = line.str();
                 finishedJobs.fetch_add(1);
                 skippedJobs.fetch_add(1);
@@ -876,7 +905,7 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
     if (!manifest) {
         throw std::runtime_error("cannot open manifest.csv in output directory");
     }
-    manifest << "run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples\n";
+    manifest << "run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples,fragment_shape_dir\n";
     for (const auto& line : manifestLines) {
         manifest << line << '\n';
     }

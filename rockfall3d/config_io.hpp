@@ -1,5 +1,6 @@
 #pragma once
 #include "deposition_output.hpp"
+#include "fragmentation.hpp"
 #include "math_alias.hpp"
 #include "raster_output.hpp"
 #include "terrain.hpp"
@@ -60,6 +61,7 @@ struct BatchSimulationConfig
     bool writeTimingReport{ false };
     std::optional<RasterOutputConfig> rasterOutput;
     std::optional<DepositionPointOutputConfig> depositionPointOutput;
+    std::optional<FragmentationConfig> fragmentation;
 
     std::vector<fs::path> rockPaths;
     std::vector<StartPoint> startPoints;
@@ -336,6 +338,8 @@ inline void append_output_field_alias(std::vector<OutputFieldId>& fields, const 
     if (value == "ekin_rot" || value == "ekinrot") { append_unique(OutputFieldId::EkinRot); return; }
     if (value == "ekin_tot" || value == "ekin" || value == "ekintot") { append_unique(OutputFieldId::EkinTot); return; }
     if (value == "jumph" || value == "jump_h") { append_unique(OutputFieldId::JumpH); return; }
+    if (value == "mass") { append_unique(OutputFieldId::Mass); return; }
+    if (value == "shape_index" || value == "shapeindex") { append_unique(OutputFieldId::ShapeIndex); return; }
 
     throw std::runtime_error("unknown output variable: " + token);
 }
@@ -609,6 +613,7 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
+    const auto fragmentationTag = find_tag_attributes(xml, "fragmentation");
     const auto outputTag = find_tag_block(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
@@ -698,6 +703,51 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
         cfg.output.enabled = true;
         cfg.output.format = OutputFormat::Text;
         cfg.output.fields = default_output_fields();
+    }
+
+    if (fragmentationTag) {
+        FragmentationConfig fragmentation;
+        fragmentation.thresholdSpecificEnergy = parse_number<Real>(
+            require_attr(*fragmentationTag, "threshold_specific_energy", "fragmentation"),
+            "fragmentation threshold_specific_energy");
+        fragmentation.halfSpecificEnergy = parse_number<Real>(
+            require_attr(*fragmentationTag, "half_specific_energy", "fragmentation"),
+            "fragmentation half_specific_energy");
+        if (const auto exponent = optional_attr(*fragmentationTag, "exponent")) {
+            fragmentation.exponent = parse_number<Real>(*exponent, "fragmentation exponent");
+        }
+        if (const auto maxFraction = optional_attr(*fragmentationTag, "max_removed_fraction")) {
+            fragmentation.maxRemovedFraction = parse_number<Real>(
+                *maxFraction, "fragmentation max_removed_fraction");
+        }
+        if (const auto shapeDirectory = optional_attr(*fragmentationTag, "shape_output_dir")) {
+            fragmentation.shapeOutputDirectory = parse_config_path(trim_copy(*shapeDirectory));
+        }
+
+        if (!(fragmentation.thresholdSpecificEnergy >= Real(0))) {
+            throw std::runtime_error("fragmentation threshold_specific_energy must be non-negative");
+        }
+        if (!(fragmentation.halfSpecificEnergy > fragmentation.thresholdSpecificEnergy)) {
+            throw std::runtime_error("fragmentation half_specific_energy must be greater than threshold_specific_energy");
+        }
+        if (!(fragmentation.exponent > Real(0))) {
+            throw std::runtime_error("fragmentation exponent must be positive");
+        }
+        if (!(fragmentation.maxRemovedFraction > Real(0)
+            && fragmentation.maxRemovedFraction <= Real(0.5))) {
+            throw std::runtime_error("fragmentation max_removed_fraction must be in (0, 0.5]");
+        }
+        if (fragmentation.shapeOutputDirectory.empty()
+            || fragmentation.shapeOutputDirectory.is_absolute()
+            || looks_like_unc_path(fragmentation.shapeOutputDirectory.string())) {
+            throw std::runtime_error("fragmentation shape_output_dir must be a non-empty relative path");
+        }
+        cfg.fragmentation = std::move(fragmentation);
+    }
+
+    if (cfg.fragmentation && cfg.output.enabled) {
+        append_output_field_alias(cfg.output.fields, "mass");
+        append_output_field_alias(cfg.output.fields, "shape_index");
     }
 
     if (debugTag) {

@@ -35,6 +35,9 @@ struct RecordedStepData
     Eigen::Matrix<Real, 7, 1> q = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalised coordinates
     Vec6 u = Vec6::Zero();// generalised velocities
     std::optional<Real> minGap;// jump height
+	Real mass{ Real(0) }; // mass of the rock at this step
+	Mat3 inertiaK = Mat3::Zero(); // inertia tensor in the body frame at this step
+	std::uint32_t shapeIndex{ 0 }; // index of the rock shape at this step, used for fragmentation output
 };
 
 struct RecordedTrajectoryLocation
@@ -69,7 +72,6 @@ public:
 // Compute the value of a recorded field from the raw step data. This is used
 // to populate the output fields during trajectory recording.
 inline double recorded_field_value(OutputFieldId field,
-    const Rock& rock,
     const RecordedStepData& step)
 {
     switch (field) {
@@ -90,18 +92,20 @@ inline double recorded_field_value(OutputFieldId field,
     case OutputFieldId::Wz: return static_cast<double>(step.u(5));
     case OutputFieldId::Wtot: return static_cast<double>(step.u.tail<3>().norm());
     case OutputFieldId::EkinTrans:
-        return static_cast<double>(Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm());
+        return static_cast<double>(Real(0.5) * step.mass * step.u.head<3>().squaredNorm());
     case OutputFieldId::EkinRot:
-        return static_cast<double>(Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>()));
+        return static_cast<double>(Real(0.5) * step.u.tail<3>().dot(step.inertiaK * step.u.tail<3>()));
     case OutputFieldId::EkinTot:
         return static_cast<double>(
-            Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm()
-            + Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>()));
+            Real(0.5) * step.mass * step.u.head<3>().squaredNorm()
+            + Real(0.5) * step.u.tail<3>().dot(step.inertiaK * step.u.tail<3>()));
     case OutputFieldId::JumpH:
         if (step.minGap.has_value()) {
             return static_cast<double>(*step.minGap);
         }
         return std::numeric_limits<double>::quiet_NaN();
+    case OutputFieldId::Mass: return static_cast<double>(step.mass);
+    case OutputFieldId::ShapeIndex: return static_cast<double>(step.shapeIndex);
     }
     return std::numeric_limits<double>::quiet_NaN();
 }
@@ -145,7 +149,7 @@ public:
             throw std::runtime_error("binary recorder beginTrajectory called while another trajectory is still active");
         }
 
-        currentRock_ = &rock;
+        (void)rock;
         currentHeaderOffset_ = tellp_u64();
         currentSampleCount_ = 0;
         currentSampleCountPos_ = std::streampos(-1);
@@ -191,7 +195,6 @@ public:
         out_.seekp(endPos);
 
         active_ = false;
-        currentRock_ = nullptr;
 
         return RecordedTrajectoryLocation{
             shardFileName_,
@@ -208,7 +211,6 @@ public:
     void abortActiveTrajectory() noexcept override
     {
         active_ = false;
-        currentRock_ = nullptr;
         currentSampleCount_ = 0;
         currentSampleCountPos_ = std::streampos(-1);
         currentSimSecondsPos_ = std::streampos(-1);
@@ -304,12 +306,8 @@ private:
     void writeSample(const RecordedStepData& step)
     {
         requireActive();
-        if (currentRock_ == nullptr) {
-            throw std::runtime_error("binary recorder has no active rock");
-        }
-
         for (const auto& field : layout_) {
-            const double value = recorded_field_value(field.id, *currentRock_, step);
+            const double value = recorded_field_value(field.id, step);
             if (field.scalarType == OutputScalarType::Float64) {
                 writePod(value);
             }
@@ -339,7 +337,6 @@ private:
     std::vector<OutputFieldDescriptor> layout_;
     std::uint32_t recordSize_{ 0 };
     bool active_{ false };
-    const Rock* currentRock_{ nullptr };
     std::uint64_t currentHeaderOffset_{ 0 };
     std::uint64_t currentSampleCount_{ 0 };
     std::streampos currentSampleCountPos_{};
@@ -387,7 +384,7 @@ public:
             throw std::runtime_error("text recorder beginTrajectory called while another trajectory is still active");
         }
 
-        currentRock_ = &rock;
+        (void)rock;
         currentHeaderOffset_ = tellp_u64();
         currentSampleCount_ = 0;
         lastWrittenTime_ = std::numeric_limits<Real>::quiet_NaN();
@@ -421,7 +418,6 @@ public:
         }
 
         active_ = false;
-        currentRock_ = nullptr;
         out_.flush();
 
         return RecordedTrajectoryLocation{
@@ -434,7 +430,6 @@ public:
     void abortActiveTrajectory() noexcept override
     {
         active_ = false;
-        currentRock_ = nullptr;
         currentSampleCount_ = 0;
         nextDumpTime_ = Real(0);
         lastWrittenTime_ = std::numeric_limits<Real>::quiet_NaN();
@@ -483,15 +478,11 @@ private:
     void writeSample(const RecordedStepData& step)
     {
         requireActive();
-        if (currentRock_ == nullptr) {
-            throw std::runtime_error("text recorder has no active rock");
-        }
-
         for (std::size_t i = 0; i < fields_.size(); ++i) {
             if (i > 0) {
                 out_ << ' ';
             }
-            out_ << recorded_field_value(fields_[i], *currentRock_, step);
+            out_ << recorded_field_value(fields_[i], step);
         }
         out_ << '\n';
         if (!out_) {
@@ -516,7 +507,6 @@ private:
     Real dumpStep_{ Real(0) };
     std::vector<OutputFieldId> fields_;
     bool active_{ false };
-    const Rock* currentRock_{ nullptr };
     std::uint64_t currentHeaderOffset_{ 0 };
     std::uint64_t currentSampleCount_{ 0 };
     Real nextDumpTime_{ Real(0) };

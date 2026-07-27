@@ -220,7 +220,6 @@ inline std::string default_raster_output_stem(const RasterLayerSpec& layer)
 // Sample the value of the specified metric from the given step data. 
 // Returns nullopt if the metric is not available.
 inline std::optional<Real> sample_metric_value(RasterMetric metric,
-    const Rock& rock,
     const RecordedStepData& step)
 {
     switch (metric) {
@@ -236,12 +235,12 @@ inline std::optional<Real> sample_metric_value(RasterMetric metric,
     case RasterMetric::Wz: return step.u(5);
     case RasterMetric::Wtot: return step.u.tail<3>().norm();
     case RasterMetric::EkinTrans:
-        return Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm();
+        return Real(0.5) * step.mass * step.u.head<3>().squaredNorm();
     case RasterMetric::EkinRot:
-        return Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>());
+        return Real(0.5) * step.u.tail<3>().dot(step.inertiaK * step.u.tail<3>());
     case RasterMetric::EkinTot:
-        return Real(0.5) * rock.mass() * step.u.head<3>().squaredNorm()
-            + Real(0.5) * step.u.tail<3>().dot(rock.inertiaK() * step.u.tail<3>());
+        return Real(0.5) * step.mass * step.u.head<3>().squaredNorm()
+            + Real(0.5) * step.u.tail<3>().dot(step.inertiaK * step.u.tail<3>());
     case RasterMetric::JumpH:
         if (step.minGap.has_value()) {
             return *step.minGap;
@@ -467,7 +466,7 @@ public:
             throw std::runtime_error("memory raster recorder beginTrajectory called while another trajectory is still active");
         }
 
-        currentRock_ = &rock;
+        (void)rock;
         active_ = true;
         trajectoryCellIndex_.clear();
         trajectoryCells_.clear();
@@ -504,7 +503,6 @@ public:
 
         flush_trajectory();
         active_ = false;
-        currentRock_ = nullptr;
         trajectoryCellIndex_.clear();
         trajectoryCells_.clear();
         trajectoryLayerMax_.clear();
@@ -517,7 +515,6 @@ public:
         override
     {
         active_ = false;
-        currentRock_ = nullptr;
         trajectoryCellIndex_.clear();
         trajectoryCells_.clear();
         trajectoryLayerMax_.clear();
@@ -553,7 +550,7 @@ private:
     void evaluate_metrics(const RecordedStepData& step)
     {
         for (std::size_t i = 0; i < uniqueMetrics_.size(); ++i) {
-            const std::optional<Real> value = sample_metric_value(uniqueMetrics_[i], *currentRock_, step);
+            const std::optional<Real> value = sample_metric_value(uniqueMetrics_[i], step);
             metricValues_[i] = (value.has_value() && std::isfinite(*value))
                 ? static_cast<float>(*value)
                 : std::numeric_limits<float>::quiet_NaN();
@@ -634,7 +631,6 @@ private:
     Real dumpStep_{ Real(0) };
     std::size_t layerCount_{ 0 };
     bool active_{ false };
-    const Rock* currentRock_{ nullptr };
     Real nextDumpTime_{ Real(0) };
     Real lastWrittenTime_{ std::numeric_limits<Real>::quiet_NaN() };
     std::vector<RasterMetric> uniqueMetrics_;

@@ -36,7 +36,9 @@ enum class OutputFieldId : std::uint16_t
     EkinTrans = 17,
     EkinRot = 18,
     EkinTot = 19,
-    JumpH = 20
+    JumpH = 20,
+    Mass = 21,
+    ShapeIndex = 22
 };
 
 enum class OutputScalarType : std::uint8_t
@@ -92,6 +94,8 @@ inline std::string output_field_name(OutputFieldId field)
     case OutputFieldId::EkinRot: return "ekin_rot";
     case OutputFieldId::EkinTot: return "ekin_tot";
     case OutputFieldId::JumpH: return "jumph";
+    case OutputFieldId::Mass: return "mass";
+    case OutputFieldId::ShapeIndex: return "shape_index";
     }
     return "unknown";
 }
