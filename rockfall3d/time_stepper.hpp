@@ -17,6 +17,24 @@ enum class ContactSolverType : std::uint8_t
     SorProx
 };
 
+enum class ScarringMode : std::uint8_t
+{
+    Disabled = 0,
+    CenterOfMass = 1,
+    AreaCentroid = 2,
+    Distributed = 3
+};
+
+struct ScarringConfig
+{
+    ScarringMode mode{ ScarringMode::Disabled };
+    Real ME{ Real(0) };
+    Real dragCoefficient{ Real(0) };
+    Real density{ Real(0) };
+
+    bool enabled() const noexcept { return mode != ScarringMode::Disabled; }
+};
+
 // Reasons why a trajectory stopped. These values are propagated to
 // manifest.csv and therefore form part of the public run contract.
 enum class TimeStepperStopReason : std::uint8_t
@@ -72,6 +90,17 @@ struct TimeStepperRunSummary
     Eigen::Matrix<Real, 7, 1> qFinal = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalized coordinates at stop
     Vec6 uFinal = Vec6::Zero();// generalized velocities at stop
     std::optional<Real> minGapFinal;// minimum gap at stop
+    Real scarDepthFinal{ Real(0) };
+    Real scarLayerDepthFinal{ Real(0) };
+    Vec3 dragForceFinal = Vec3::Zero();
+    Vec3 dragTorqueFinal = Vec3::Zero();
+    Real projectedAreaFinal{ Real(0) };
+    Real dragPowerTransFinal{ Real(0) };
+    Real dragPowerRotFinal{ Real(0) };
+    Real dragWorkTransFinal{ Real(0) };
+    Real dragWorkRotFinal{ Real(0) };
+    std::uint64_t contactSteps{ 0 };
+    std::uint64_t solverIterations{ 0 };
     TimeStepperStopReason stopReason{ TimeStepperStopReason::Unknown };// reason for stopping
 };
 
@@ -82,6 +111,9 @@ struct TimeStepperWorkspace
 {
     TerrainQueryWorkspace terrain;
     ContactSolverWorkspace solver;
+    MatX scarWorldVertices;
+    std::vector<Vec3> scarAreaVectors;
+    std::vector<Vec3> scarCentroids;
 };
 
 class TimeStepper
@@ -95,6 +127,7 @@ public:
     Real epsilonN = Real(0);
     Real epsilonT = Real(0);
     std::uint32_t maxiter = 10000;
+    ScarringConfig scarring;
 
     // Run and keep all dumped states in memory.
     TimeStepperResult run(Real mu,

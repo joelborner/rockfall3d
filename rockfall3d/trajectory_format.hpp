@@ -36,7 +36,26 @@ enum class OutputFieldId : std::uint16_t
     EkinTrans = 17,
     EkinRot = 18,
     EkinTot = 19,
-    JumpH = 20
+    JumpH = 20,
+    ScarDepth = 21,
+    ScarLayerDepth = 22,
+    DragFx = 23,
+    DragFy = 24,
+    DragFz = 25,
+    DragFtot = 26,
+    DragTx = 27,
+    DragTy = 28,
+    DragTz = 29,
+    DragTtot = 30,
+    ProjectedArea = 31,
+    DragPowerTrans = 32,
+    DragPowerRot = 33,
+    DragPowerTotal = 34,
+    DragWorkTrans = 35,
+    DragWorkRot = 36,
+    DragWorkTotal = 37,
+    ContactSteps = 38,
+    SolverIterations = 39
 };
 
 enum class OutputScalarType : std::uint8_t
@@ -92,6 +111,25 @@ inline std::string output_field_name(OutputFieldId field)
     case OutputFieldId::EkinRot: return "ekin_rot";
     case OutputFieldId::EkinTot: return "ekin_tot";
     case OutputFieldId::JumpH: return "jumph";
+    case OutputFieldId::ScarDepth: return "scar_depth";
+    case OutputFieldId::ScarLayerDepth: return "scar_layer_depth";
+    case OutputFieldId::DragFx: return "drag_fx";
+    case OutputFieldId::DragFy: return "drag_fy";
+    case OutputFieldId::DragFz: return "drag_fz";
+    case OutputFieldId::DragFtot: return "drag_ftot";
+    case OutputFieldId::DragTx: return "drag_tx";
+    case OutputFieldId::DragTy: return "drag_ty";
+    case OutputFieldId::DragTz: return "drag_tz";
+    case OutputFieldId::DragTtot: return "drag_ttot";
+    case OutputFieldId::ProjectedArea: return "projected_area";
+    case OutputFieldId::DragPowerTrans: return "drag_power_trans";
+    case OutputFieldId::DragPowerRot: return "drag_power_rot";
+    case OutputFieldId::DragPowerTotal: return "drag_power_total";
+    case OutputFieldId::DragWorkTrans: return "drag_work_trans";
+    case OutputFieldId::DragWorkRot: return "drag_work_rot";
+    case OutputFieldId::DragWorkTotal: return "drag_work_total";
+    case OutputFieldId::ContactSteps: return "contact_steps";
+    case OutputFieldId::SolverIterations: return "solver_iterations";
     }
     return "unknown";
 }
@@ -101,6 +139,8 @@ inline OutputScalarType output_field_scalar_type(OutputFieldId field)
     switch (field) {
     case OutputFieldId::X:
     case OutputFieldId::Y:
+    case OutputFieldId::ContactSteps:
+    case OutputFieldId::SolverIterations:
         return OutputScalarType::Float64;
     default:
         return OutputScalarType::Float32;

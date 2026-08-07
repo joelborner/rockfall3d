@@ -89,7 +89,8 @@ public:
     TerrainQueryResult queryPose(const Rock& rock,
         const Mat3& AIK,
         const Vec3& xI,
-        TerrainQueryWorkspace& ws) const;
+        TerrainQueryWorkspace& ws,
+        Real hardLayerDepth = Real(0)) const;
 
     void addRoughness(const std::string& rasterPath,
         StepFunc stepFunc,

@@ -17,6 +17,7 @@ joel.borner@slf.ch
 - rigid-body dynamics with quaternion orientation
 - nonsmooth dynamics with hard contact laws and Coulomb friction. Moreau timestepping scheme and JOR/SOR-prox contact solve for terrain interaction
 - roughness model based on Perlin noise
+- optional scarring-drag model with three benchmark modes
 - deterministic random orientation and roughness, reproducible with seeds
 - shared-memory, thread-based parallel execution
 - trajectory and/or raster output
@@ -138,6 +139,7 @@ Required tags:
 Optional tags:
 
 - `<roughness/>`
+- `<scarring/>`
 - `<output>...</output>`
 - `<debug/>`
 
@@ -243,6 +245,24 @@ Notes on roughness raster:
  - Grid size of the roughness raster should be at least 2x bigger than its highest value.
  - Values in roughness raster should be smaller than DEM resolution
 
+### `<scarring/>`
+
+This optional tag enables one uniform scarring-drag model for the complete
+simulation domain.
+
+| Attribute | Meaning |
+|---|---|
+| `mode` | `1`: force at the rock COM; `2`: resultant at the projected-area centroid; `3`: distributed face-level drag |
+| `ME` | Soil mechanical strength in `kN/m^2` used by the scar-depth relation |
+| `CD` | Dimensionless drag coefficient |
+| `rho` | Scar-layer density in `kg/m^3` |
+
+The maximum layer depth is calculated once when an impact episode starts using
+the published relation `d = 0.1 m^(1/3) ME^-0.4 |Vz|^0.8`. As in the paper,
+terrain-slope influence on this relation is neglected. The hard contact laws
+remain active at the bottom of that layer. Modes 2 and 3 include drag-induced
+torque; mode 1 is the paper baseline without direct drag torque.
+
 ### `<output>...</output>`
 
 This tag is optional.
@@ -318,6 +338,21 @@ Valid metric names / aliases:
 | `ekin_rot` | Kinetic rotational energy [J] | X | X |  |
 | `ekin_tot` | Kinetic energy [J] | X | X |  |
 | `jumpH` | Jump height [m] | X | X |  |
+| `scar_depth` | Current immersion below the original terrain surface [m] | X | X |  |
+| `scar_layer_depth` | Fixed hard-layer depth for the current impact episode [m] | X | X |  |
+| `drag_fx,drag_fy,drag_fz` | Scarring-drag force in world axes [N] | X | X |  |
+| `drag_ftot` (`drag_force`) | Resultant scarring-drag force [N] | X | X |  |
+| `drag_tx,drag_ty,drag_tz` | Scarring-drag torque about the COM in world axes [N m] | X | X |  |
+| `drag_ttot` (`drag_torque`) | Resultant scarring-drag torque [N m] | X | X |  |
+| `projected_area` | Immersed rock area projected in the drag direction [m^2] | X | X |  |
+| `drag_power_trans` | Instantaneous translational drag power [W] | X | X |  |
+| `drag_power_rot` | Instantaneous rotational drag power [W] | X | X |  |
+| `drag_power_total` | Sum of translational and rotational drag power [W] | X | X |  |
+| `drag_work_trans` | Cumulative signed translational drag work [J] | X | X |  |
+| `drag_work_rot` | Cumulative signed rotational drag work [J] | X | X |  |
+| `drag_work_total` | Cumulative signed total drag work [J] | X | X |  |
+| `contact_steps` | Cumulative accepted timesteps with hard contact | X | X |  |
+| `solver_iterations` | Cumulative proximal solver iterations | X | X |  |
 | `count` | Number of contributing trajectories per raster cell |  | X |  |
 | `deposition` | Final accepted deposition point per trajectory |  |  | X |
 
@@ -380,10 +415,16 @@ Notes:
     raster="data/roughness_grid_size.tif"
     step_func="smoothstep"/>
 
+<scarring
+    mode="2"
+    ME="1000"
+    CD="1.0"
+    rho="1800"/>
+
 <output>
   <trajectory
       format="binary"
-      metric="t,x,y,z,quat,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH"/>
+      metric="t,x,y,z,quat,vx,vy,vz,vtot,wx,wy,wz,wtot,ekin_trans,ekin_rot,ekin_tot,jumpH,scar_depth,scar_layer_depth,drag_ftot,drag_ttot,projected_area,drag_power_trans,drag_power_rot,drag_power_total,drag_work_trans,drag_work_rot,drag_work_total,contact_steps,solver_iterations"/>
   <raster
       metric="ekin_tot"
       resolution="2.0"

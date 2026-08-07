@@ -26,6 +26,7 @@ public:
     const Mat3& inertiaK() const noexcept { return m_theta; }
     const Mat6& massMatrix() const noexcept { return m_MM; }
     const MatX& skewConcat() const noexcept { return m_KrSP_t; }
+    const std::vector<std::uint32_t>& triangleFaces() const noexcept { return m_triangleFaces; }
 
     // initial state
     const Vec6& u0() const noexcept { return m_u0; }
@@ -34,6 +35,7 @@ public:
 private:
     MatX m_KrSP;                      // 3 x n body-frame vertices, COM at origin
     MatX m_KrSP_t;                    // concatenated skew matrices [tilde(r1) ... tilde(rn)]
+    std::vector<std::uint32_t> m_triangleFaces; // outward-oriented hull triangles
     std::size_t m_nVert{};
     Real        m_density{};
     Real        m_mass{};

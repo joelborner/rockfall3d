@@ -39,7 +39,26 @@ enum class RasterMetric : std::uint8_t
     EkinTrans,
     EkinRot,
     EkinTot,
-    JumpH
+    JumpH,
+    ScarDepth,
+    ScarLayerDepth,
+    DragFx,
+    DragFy,
+    DragFz,
+    DragFtot,
+    DragTx,
+    DragTy,
+    DragTz,
+    DragTtot,
+    ProjectedArea,
+    DragPowerTrans,
+    DragPowerRot,
+    DragPowerTotal,
+    DragWorkTrans,
+    DragWorkRot,
+    DragWorkTotal,
+    ContactSteps,
+    SolverIterations
 };
 
 // Possible statistics to compute for each raster cell
@@ -85,6 +104,25 @@ inline std::string raster_metric_name(RasterMetric metric)
     case RasterMetric::EkinRot: return "ekin_rot";
     case RasterMetric::EkinTot: return "ekin_tot";
     case RasterMetric::JumpH: return "jump_h";
+    case RasterMetric::ScarDepth: return "scar_depth";
+    case RasterMetric::ScarLayerDepth: return "scar_layer_depth";
+    case RasterMetric::DragFx: return "drag_fx";
+    case RasterMetric::DragFy: return "drag_fy";
+    case RasterMetric::DragFz: return "drag_fz";
+    case RasterMetric::DragFtot: return "drag_ftot";
+    case RasterMetric::DragTx: return "drag_tx";
+    case RasterMetric::DragTy: return "drag_ty";
+    case RasterMetric::DragTz: return "drag_tz";
+    case RasterMetric::DragTtot: return "drag_ttot";
+    case RasterMetric::ProjectedArea: return "projected_area";
+    case RasterMetric::DragPowerTrans: return "drag_power_trans";
+    case RasterMetric::DragPowerRot: return "drag_power_rot";
+    case RasterMetric::DragPowerTotal: return "drag_power_total";
+    case RasterMetric::DragWorkTrans: return "drag_work_trans";
+    case RasterMetric::DragWorkRot: return "drag_work_rot";
+    case RasterMetric::DragWorkTotal: return "drag_work_total";
+    case RasterMetric::ContactSteps: return "contact_steps";
+    case RasterMetric::SolverIterations: return "solver_iterations";
     default: return "rocks";
     }
 }
@@ -247,6 +285,25 @@ inline std::optional<Real> sample_metric_value(RasterMetric metric,
             return *step.minGap;
         }
         return std::nullopt;
+    case RasterMetric::ScarDepth: return step.scarDepth;
+    case RasterMetric::ScarLayerDepth: return step.scarLayerDepth;
+    case RasterMetric::DragFx: return step.dragForce.x();
+    case RasterMetric::DragFy: return step.dragForce.y();
+    case RasterMetric::DragFz: return step.dragForce.z();
+    case RasterMetric::DragFtot: return step.dragForce.norm();
+    case RasterMetric::DragTx: return step.dragTorque.x();
+    case RasterMetric::DragTy: return step.dragTorque.y();
+    case RasterMetric::DragTz: return step.dragTorque.z();
+    case RasterMetric::DragTtot: return step.dragTorque.norm();
+    case RasterMetric::ProjectedArea: return step.projectedArea;
+    case RasterMetric::DragPowerTrans: return step.dragPowerTrans;
+    case RasterMetric::DragPowerRot: return step.dragPowerRot;
+    case RasterMetric::DragPowerTotal: return step.dragPowerTrans + step.dragPowerRot;
+    case RasterMetric::DragWorkTrans: return step.dragWorkTrans;
+    case RasterMetric::DragWorkRot: return step.dragWorkRot;
+    case RasterMetric::DragWorkTotal: return step.dragWorkTrans + step.dragWorkRot;
+    case RasterMetric::ContactSteps: return static_cast<Real>(step.contactSteps);
+    case RasterMetric::SolverIterations: return static_cast<Real>(step.solverIterations);
     default:
         return std::nullopt;
     }

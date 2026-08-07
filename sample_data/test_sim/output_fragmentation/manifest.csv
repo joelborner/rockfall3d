@@ -1,0 +1,4 @@
+run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples,fragment_shape_dir
+1,1,"sample_data\test_sim\rocks\1m3_EOTA.pts",1,2.79323e+06,1.18013e+06,2286.21,1,"1m3_EOTA_r001_s0001_o0001",COMPLETED,"max_time","binary","trajectories_001.rfbin",88,0.0263833,21,"fragment_shapes/1m3_EOTA_r001_s0001_o0001"
+2,1,"sample_data\test_sim\rocks\1m3_EOTA.pts",2,2.79323e+06,1.18013e+06,2284.72,1,"1m3_EOTA_r001_s0002_o0001",COMPLETED,"max_time","binary","trajectories_001.rfbin",888,0.0093718,21,"fragment_shapes/1m3_EOTA_r001_s0002_o0001"
+3,1,"sample_data\test_sim\rocks\1m3_EOTA.pts",3,2.79324e+06,1.18013e+06,2284.17,1,"1m3_EOTA_r001_s0003_o0001",COMPLETED,"max_time","binary","trajectories_001.rfbin",1688,0.0185055,21,"fragment_shapes/1m3_EOTA_r001_s0003_o0001"

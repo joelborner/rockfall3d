@@ -8,6 +8,7 @@ struct SorProjectResult
 {
     Vec6 velocity = Vec6::Zero();
     bool converged{ true };
+    std::uint32_t iterations{ 0 };
 };
 
 /* -------------------------------------------------------------------------
@@ -24,7 +25,7 @@ inline SorProjectResult sor_project(ContactSolverWorkspace& ws,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
     if (nN == 0) {
-        return { uA + MM_inv * rhs, true };
+        return { uA + MM_inv * rhs, true, 0 };
     }
 
     const Eigen::Index nNI = static_cast<Eigen::Index>(nN);
@@ -72,8 +73,10 @@ inline SorProjectResult sor_project(ContactSolverWorkspace& ws,
         + MWT2 * PT.col(1).matrix();
 
     bool converged = false;
+    std::uint32_t iterations = 0;
     for (std::uint32_t it = 0; it < maxiter; ++it)
     {
+        iterations = it + 1;
         Real deltaPN2 = Real(0);
         Real deltaPT2 = Real(0);
         Real scalePN2 = Real(0);
@@ -133,5 +136,5 @@ inline SorProjectResult sor_project(ContactSolverWorkspace& ws,
         }
     }
 
-    return { uE, converged };
+    return { uE, converged, iterations };
 }

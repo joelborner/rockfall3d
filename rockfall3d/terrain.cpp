@@ -57,7 +57,8 @@ TerrainQueryResult query_pose_impl(const Terrain& dem,
     const Rock& rock,
     const Mat3& AIK,
     const Vec3& xI,
-    TerrainQueryWorkspace& ws)
+    TerrainQueryWorkspace& ws,
+    Real hardLayerDepth)
 {
     const std::size_t nVert = rock.nVert();
     ws.ensureVertexCapacity(nVert);
@@ -115,7 +116,7 @@ TerrainQueryResult query_pose_impl(const Terrain& dem,
             result.minPositiveGap = gap;
         }
 
-        if (gap <= Real(0)) {
+        if (gap + hardLayerDepth <= Real(0)) {
             const Eigen::Index cIdx = static_cast<Eigen::Index>(result.contactCount);
             ws.contactIdx(cIdx) = static_cast<std::uint32_t>(v);
             ws.contactRow(cIdx) = row;
@@ -165,10 +166,11 @@ TerrainQueryResult query_pose_impl(const Terrain& dem,
 TerrainQueryResult Terrain::queryPose(const Rock& rock,
     const Mat3& AIK,
     const Vec3& xI,
-    TerrainQueryWorkspace& ws) const
+    TerrainQueryWorkspace& ws,
+    Real hardLayerDepth) const
 {
     if (hasRoughness()) {
-        return query_pose_impl<true>(*this, rock, AIK, xI, ws);
+        return query_pose_impl<true>(*this, rock, AIK, xI, ws, hardLayerDepth);
     }
-    return query_pose_impl<false>(*this, rock, AIK, xI, ws);
+    return query_pose_impl<false>(*this, rock, AIK, xI, ws, hardLayerDepth);
 }

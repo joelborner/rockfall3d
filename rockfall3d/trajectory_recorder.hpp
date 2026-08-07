@@ -35,6 +35,17 @@ struct RecordedStepData
     Eigen::Matrix<Real, 7, 1> q = (Eigen::Matrix<Real, 7, 1>() << 0, 0, 0, 1, 0, 0, 0).finished();// generalised coordinates
     Vec6 u = Vec6::Zero();// generalised velocities
     std::optional<Real> minGap;// jump height
+    Real scarDepth{ Real(0) };
+    Real scarLayerDepth{ Real(0) };
+    Vec3 dragForce = Vec3::Zero();
+    Vec3 dragTorque = Vec3::Zero();
+    Real projectedArea{ Real(0) };
+    Real dragPowerTrans{ Real(0) };
+    Real dragPowerRot{ Real(0) };
+    Real dragWorkTrans{ Real(0) };
+    Real dragWorkRot{ Real(0) };
+    std::uint64_t contactSteps{ 0 };
+    std::uint64_t solverIterations{ 0 };
 };
 
 struct RecordedTrajectoryLocation
@@ -102,6 +113,27 @@ inline double recorded_field_value(OutputFieldId field,
             return static_cast<double>(*step.minGap);
         }
         return std::numeric_limits<double>::quiet_NaN();
+    case OutputFieldId::ScarDepth: return static_cast<double>(step.scarDepth);
+    case OutputFieldId::ScarLayerDepth: return static_cast<double>(step.scarLayerDepth);
+    case OutputFieldId::DragFx: return static_cast<double>(step.dragForce.x());
+    case OutputFieldId::DragFy: return static_cast<double>(step.dragForce.y());
+    case OutputFieldId::DragFz: return static_cast<double>(step.dragForce.z());
+    case OutputFieldId::DragFtot: return static_cast<double>(step.dragForce.norm());
+    case OutputFieldId::DragTx: return static_cast<double>(step.dragTorque.x());
+    case OutputFieldId::DragTy: return static_cast<double>(step.dragTorque.y());
+    case OutputFieldId::DragTz: return static_cast<double>(step.dragTorque.z());
+    case OutputFieldId::DragTtot: return static_cast<double>(step.dragTorque.norm());
+    case OutputFieldId::ProjectedArea: return static_cast<double>(step.projectedArea);
+    case OutputFieldId::DragPowerTrans: return static_cast<double>(step.dragPowerTrans);
+    case OutputFieldId::DragPowerRot: return static_cast<double>(step.dragPowerRot);
+    case OutputFieldId::DragPowerTotal:
+        return static_cast<double>(step.dragPowerTrans + step.dragPowerRot);
+    case OutputFieldId::DragWorkTrans: return static_cast<double>(step.dragWorkTrans);
+    case OutputFieldId::DragWorkRot: return static_cast<double>(step.dragWorkRot);
+    case OutputFieldId::DragWorkTotal:
+        return static_cast<double>(step.dragWorkTrans + step.dragWorkRot);
+    case OutputFieldId::ContactSteps: return static_cast<double>(step.contactSteps);
+    case OutputFieldId::SolverIterations: return static_cast<double>(step.solverIterations);
     }
     return std::numeric_limits<double>::quiet_NaN();
 }

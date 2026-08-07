@@ -404,6 +404,7 @@ TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
     step.epsilonN = cfg.epsilonN;
     step.epsilonT = cfg.epsilonT;
     step.maxiter = cfg.solver.maxiter;
+    step.scarring = cfg.scarring;
     return step;
 }
 
@@ -687,7 +688,18 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         recordedSummary.tFinal,
                         recordedSummary.qFinal,
                         recordedSummary.uFinal,
-                        recordedSummary.minGapFinal
+                        recordedSummary.minGapFinal,
+                        recordedSummary.scarDepthFinal,
+                        recordedSummary.scarLayerDepthFinal,
+                        recordedSummary.dragForceFinal,
+                        recordedSummary.dragTorqueFinal,
+                        recordedSummary.projectedAreaFinal,
+                        recordedSummary.dragPowerTransFinal,
+                        recordedSummary.dragPowerRotFinal,
+                        recordedSummary.dragWorkTransFinal,
+                        recordedSummary.dragWorkRotFinal,
+                        recordedSummary.contactSteps,
+                        recordedSummary.solverIterations
                     };
                     if (cfg.output.enabled) {
                         if (cfg.rasterOutput.has_value()) {

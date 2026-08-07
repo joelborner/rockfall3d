@@ -80,6 +80,7 @@ struct BatchSimulationConfig
 
     SolverConfig solver;
     TimeStepperStopCriteria stop;
+    ScarringConfig scarring;
 };
 
 // removes whitespace at the beginning and end of a string and returns cleaned copy
@@ -282,6 +283,18 @@ inline ContactSolverType parse_solver_type(const std::string& text)
     throw std::runtime_error("unknown solver type: " + text);
 }
 
+inline ScarringMode parse_scarring_mode(const std::string& text)
+{
+    const std::uint32_t mode = parse_number<std::uint32_t>(text, "scarring mode");
+    switch (mode) {
+    case 1: return ScarringMode::CenterOfMass;
+    case 2: return ScarringMode::AreaCentroid;
+    case 3: return ScarringMode::Distributed;
+    default:
+        throw std::runtime_error("scarring mode must be 1, 2, or 3");
+    }
+}
+
 // parse output format (txt vs. binary)
 inline OutputFormat parse_output_format(const std::string& text)
 {
@@ -336,6 +349,25 @@ inline void append_output_field_alias(std::vector<OutputFieldId>& fields, const 
     if (value == "ekin_rot" || value == "ekinrot") { append_unique(OutputFieldId::EkinRot); return; }
     if (value == "ekin_tot" || value == "ekin" || value == "ekintot") { append_unique(OutputFieldId::EkinTot); return; }
     if (value == "jumph" || value == "jump_h") { append_unique(OutputFieldId::JumpH); return; }
+    if (value == "scar_depth") { append_unique(OutputFieldId::ScarDepth); return; }
+    if (value == "scar_layer_depth") { append_unique(OutputFieldId::ScarLayerDepth); return; }
+    if (value == "drag_fx") { append_unique(OutputFieldId::DragFx); return; }
+    if (value == "drag_fy") { append_unique(OutputFieldId::DragFy); return; }
+    if (value == "drag_fz") { append_unique(OutputFieldId::DragFz); return; }
+    if (value == "drag_ftot" || value == "drag_force") { append_unique(OutputFieldId::DragFtot); return; }
+    if (value == "drag_tx") { append_unique(OutputFieldId::DragTx); return; }
+    if (value == "drag_ty") { append_unique(OutputFieldId::DragTy); return; }
+    if (value == "drag_tz") { append_unique(OutputFieldId::DragTz); return; }
+    if (value == "drag_ttot" || value == "drag_torque") { append_unique(OutputFieldId::DragTtot); return; }
+    if (value == "projected_area") { append_unique(OutputFieldId::ProjectedArea); return; }
+    if (value == "drag_power_trans") { append_unique(OutputFieldId::DragPowerTrans); return; }
+    if (value == "drag_power_rot") { append_unique(OutputFieldId::DragPowerRot); return; }
+    if (value == "drag_power_total") { append_unique(OutputFieldId::DragPowerTotal); return; }
+    if (value == "drag_work_trans") { append_unique(OutputFieldId::DragWorkTrans); return; }
+    if (value == "drag_work_rot") { append_unique(OutputFieldId::DragWorkRot); return; }
+    if (value == "drag_work_total") { append_unique(OutputFieldId::DragWorkTotal); return; }
+    if (value == "contact_steps") { append_unique(OutputFieldId::ContactSteps); return; }
+    if (value == "solver_iterations") { append_unique(OutputFieldId::SolverIterations); return; }
 
     throw std::runtime_error("unknown output variable: " + token);
 }
@@ -392,6 +424,25 @@ inline RasterMetric parse_raster_metric(const std::string& text)
     if (value == "ekin_rot" || value == "ekinrot") return RasterMetric::EkinRot;
     if (value == "ekin_tot" || value == "ekin" || value == "ekintot") return RasterMetric::EkinTot;
     if (value == "jumph" || value == "jump_h") return RasterMetric::JumpH;
+    if (value == "scar_depth") return RasterMetric::ScarDepth;
+    if (value == "scar_layer_depth") return RasterMetric::ScarLayerDepth;
+    if (value == "drag_fx") return RasterMetric::DragFx;
+    if (value == "drag_fy") return RasterMetric::DragFy;
+    if (value == "drag_fz") return RasterMetric::DragFz;
+    if (value == "drag_ftot" || value == "drag_force") return RasterMetric::DragFtot;
+    if (value == "drag_tx") return RasterMetric::DragTx;
+    if (value == "drag_ty") return RasterMetric::DragTy;
+    if (value == "drag_tz") return RasterMetric::DragTz;
+    if (value == "drag_ttot" || value == "drag_torque") return RasterMetric::DragTtot;
+    if (value == "projected_area") return RasterMetric::ProjectedArea;
+    if (value == "drag_power_trans") return RasterMetric::DragPowerTrans;
+    if (value == "drag_power_rot") return RasterMetric::DragPowerRot;
+    if (value == "drag_power_total") return RasterMetric::DragPowerTotal;
+    if (value == "drag_work_trans") return RasterMetric::DragWorkTrans;
+    if (value == "drag_work_rot") return RasterMetric::DragWorkRot;
+    if (value == "drag_work_total") return RasterMetric::DragWorkTotal;
+    if (value == "contact_steps") return RasterMetric::ContactSteps;
+    if (value == "solver_iterations") return RasterMetric::SolverIterations;
     throw std::runtime_error("unknown raster metric: " + text);
 }
 
@@ -609,6 +660,7 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
+    const auto scarringTag = find_tag_attributes(xml, "scarring");
     const auto outputTag = find_tag_block(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
@@ -688,6 +740,24 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
             require_attr(*roughnessTag, "raster", "roughness"));
         if (const auto stepAttr = optional_attr(*roughnessTag, "step_func")) {
             cfg.roughnessStepFunc = parse_step_func(*stepAttr);
+        }
+    }
+
+    if (scarringTag) {
+        cfg.scarring.mode = parse_scarring_mode(require_attr(*scarringTag, "mode", "scarring"));
+        cfg.scarring.ME = parse_number<Real>(require_attr(*scarringTag, "me", "scarring"), "scarring ME");
+        cfg.scarring.dragCoefficient =
+            parse_number<Real>(require_attr(*scarringTag, "cd", "scarring"), "scarring CD");
+        cfg.scarring.density =
+            parse_number<Real>(require_attr(*scarringTag, "rho", "scarring"), "scarring rho");
+        if (!(cfg.scarring.ME > Real(0))) {
+            throw std::runtime_error("scarring ME must be positive");
+        }
+        if (!(cfg.scarring.dragCoefficient >= Real(0))) {
+            throw std::runtime_error("scarring CD must be non-negative");
+        }
+        if (!(cfg.scarring.density > Real(0))) {
+            throw std::runtime_error("scarring rho must be positive");
         }
     }
 

@@ -13,6 +13,7 @@ add_executable(rockfall3d
     rockfall3d/rock.cpp
     rockfall3d/terrain.cpp
     rockfall3d/roughness.cpp
+    rockfall3d/scarring_drag.cpp
     rockfall3d/time_stepper.cpp
     rockfall3d/config_io.hpp
     rockfall3d/contact_wmat.hpp
@@ -24,6 +25,7 @@ add_executable(rockfall3d
     rockfall3d/raster_output.hpp
     rockfall3d/rock.hpp
     rockfall3d/roughness.hpp
+    rockfall3d/scarring_drag.hpp
     rockfall3d/sor_solver.hpp
     rockfall3d/terrain.hpp
     rockfall3d/terrain_export.hpp

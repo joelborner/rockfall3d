@@ -57,8 +57,8 @@ void Rock::compute_mass_inertia_volume()
     qh.create_convex_hull();
 
     // 2.  Copy facet indices and enforce a consistent outward orientation
-    std::vector<std::size_t> faces;             // 3 vertex indices per triangle
-    faces.reserve(qh.facets_.size() * 3);
+    m_triangleFaces.clear();
+    m_triangleFaces.reserve(qh.facets_.size() * 3);
 
     // The mean of the input vertices is a convex combination of hull vertices
     // and therefore lies inside the convex hull. It can be used to decide
@@ -78,7 +78,8 @@ void Rock::compute_mass_inertia_volume()
         if (n.dot(A - hullCtr) < Real(0))
             std::swap(tri[1], tri[2]);                  // flip inward-facing triangles
 
-        faces.insert(faces.end(), tri.begin(), tri.end());
+        for (const std::size_t index : tri)
+            m_triangleFaces.push_back(static_cast<std::uint32_t>(index));
     }
 
 
@@ -92,11 +93,11 @@ void Rock::compute_mass_inertia_volume()
     // signed tetrahedron. Summing these tetrahedra gives the total polyhedron
     // volume and inertia. The closed-form monomials below are the standard
     // tetrahedral formulas written out explicitly.
-    for (std::size_t i = 0; i < faces.size(); i += 3)
+    for (std::size_t i = 0; i < m_triangleFaces.size(); i += 3)
     {
-        const Vec3& A = m_KrSP.col(faces[i]);
-        const Vec3& B = m_KrSP.col(faces[i + 1]);
-        const Vec3& C = m_KrSP.col(faces[i + 2]);
+        const Vec3& A = m_KrSP.col(m_triangleFaces[i]);
+        const Vec3& B = m_KrSP.col(m_triangleFaces[i + 1]);
+        const Vec3& C = m_KrSP.col(m_triangleFaces[i + 2]);
 
         const Real d = A.dot(B.cross(C));   // 6 x Vt
         const Real Vt = d / Real(6);

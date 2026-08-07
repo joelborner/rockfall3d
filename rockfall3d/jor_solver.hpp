@@ -50,6 +50,7 @@ struct JorProjectResult
 {
     Vec6 velocity = Vec6::Zero();
     bool converged{ true };
+    std::uint32_t iterations{ 0 };
 };
 
 /* -------------------------------------------------------------------------
@@ -64,7 +65,7 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
     if (nN == 0) {
-        return { uA + MM_inv * rhs, true };
+        return { uA + MM_inv * rhs, true, 0 };
     }
 
     const Eigen::Index nNI = static_cast<Eigen::Index>(nN);
@@ -113,8 +114,10 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
 
     Vec6 uE = base;
     bool converged = false;
+    std::uint32_t iterations = 0;
     for (std::uint32_t it = 0; it < maxiter; ++it)
     {
+        iterations = it + 1;
         // Evaluate the current generalized velocity using the latest impulse
         // iterate.
         uE = base
@@ -176,5 +179,5 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
         }
     }
 
-    return { uE, converged };
+    return { uE, converged, iterations };
 }

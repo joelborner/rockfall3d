@@ -1,4 +1,5 @@
 #include "time_stepper.hpp"
+#include "scarring_drag.hpp"
 #include "trajectory_recorder.hpp"
 
 #include <algorithm>
@@ -57,6 +58,17 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     summary.qFinal = rock.q0();
     summary.uFinal = rock.u0();
     summary.minGapFinal.reset();
+    summary.scarDepthFinal = Real(0);
+    summary.scarLayerDepthFinal = Real(0);
+    summary.dragForceFinal.setZero();
+    summary.dragTorqueFinal.setZero();
+    summary.projectedAreaFinal = Real(0);
+    summary.dragPowerTransFinal = Real(0);
+    summary.dragPowerRotFinal = Real(0);
+    summary.dragWorkTransFinal = Real(0);
+    summary.dragWorkRotFinal = Real(0);
+    summary.contactSteps = 0;
+    summary.solverIterations = 0;
     summary.stopReason = TimeStepperStopReason::Unknown;
 
     if (result) {
@@ -98,6 +110,12 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
     Vec6 uA = rock.u0();
     Eigen::Matrix<Real, 7, 1> qA = rock.q0();
+    bool scarEpisodeActive = false;
+    Real scarLayerDepth = Real(0);
+    Real dragWorkTrans = Real(0);
+    Real dragWorkRot = Real(0);
+    std::uint64_t contactSteps = 0;
+    std::uint64_t solverIterations = 0;
 
     ArrX PN = ArrX::Zero(static_cast<Eigen::Index>(rock.nVert()));
     MatX PT = MatX::Zero(static_cast<Eigen::Index>(rock.nVert()), 2);
@@ -114,10 +132,6 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
         // Evaluate contact at the midpoint of the fixed step.
         const auto qM = qA + qdot(qA, uA) * (stepDt * Real(0.5));
-        Vec6 hM = Vec6::Zero();
-        hM(2) = -rock.mass() * Real(9.81);
-        const Vec6 rhs = hM * stepDt;
-
         Quat quatK(qM(3), qM(4), qM(5), qM(6));
         quatK.normalize();
         const Mat3 AIK = quatK.toRotationMatrix();
@@ -128,7 +142,8 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
         // - all vertex gaps
         // - midpoint contact set
         // - DEM / roughness gradients only for contact vertices
-        const TerrainQueryResult query = dem.queryPose(rock, AIK, xM, workspace.terrain);
+        TerrainQueryResult query =
+            dem.queryPose(rock, AIK, xM, workspace.terrain, scarLayerDepth);
 
         if (query.state != TerrainContainment::Inside) {
             summary.stopReason = (query.state == TerrainContainment::NoData)
@@ -137,7 +152,54 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             break;
         }
 
+        if (stepper.scarring.enabled()) {
+            if (scarEpisodeActive && query.minGap >= Real(0)) {
+                scarEpisodeActive = false;
+                scarLayerDepth = Real(0);
+                query = dem.queryPose(rock, AIK, xM, workspace.terrain);
+            }
+            else if (!scarEpisodeActive && query.minGap < Real(0)) {
+                scarLayerDepth = calculate_scar_layer_depth(
+                    stepper.scarring.ME,
+                    rock.mass(),
+                    std::abs(uA.z()));
+                scarEpisodeActive = scarLayerDepth > Real(0);
+                if (scarEpisodeActive) {
+                    query = dem.queryPose(
+                        rock, AIK, xM, workspace.terrain, scarLayerDepth);
+                }
+            }
+        }
+
+        ScarringDragResult scarDrag;
+        const Real currentScarDepth = stepper.scarring.enabled()
+            ? std::max(Real(0), -query.minGap)
+            : Real(0);
+        Real dragPowerTrans = Real(0);
+        Real dragPowerRot = Real(0);
+        if (scarEpisodeActive && currentScarDepth > Real(0)) {
+            scarDrag = evaluate_scarring_drag(
+                stepper.scarring,
+                rock,
+                AIK,
+                xM,
+                uA,
+                workspace.terrain,
+                workspace.scarWorldVertices,
+                workspace.scarAreaVectors,
+                workspace.scarCentroids);
+            dragPowerTrans = uA.head<3>().dot(scarDrag.force);
+            dragPowerRot = (AIK * uA.tail<3>()).dot(scarDrag.torque);
+        }
+
+        Vec6 hM = Vec6::Zero();
+        hM.head<3>() = scarDrag.force;
+        hM(2) -= rock.mass() * Real(9.81);
+        hM.tail<3>() = AIK.transpose() * scarDrag.torque;
+        const Vec6 rhs = hM * stepDt;
+
         Vec6 uE;
+        std::uint32_t stepSolverIterations = 0;
         if (query.contactCount > 0)
         {
             // Build normal / tangential contact operators for the active
@@ -167,6 +229,7 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
+                stepSolverIterations = solve.iterations;
             }
             else {
                 const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
@@ -174,6 +237,7 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
+                stepSolverIterations = solve.iterations;
             }
 
             if (!converged) {
@@ -208,12 +272,29 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
         t += stepDt;
         ++stepIdx;
+        dragWorkTrans += dragPowerTrans * stepDt;
+        dragWorkRot += dragPowerRot * stepDt;
+        if (query.contactCount > 0) {
+            ++contactSteps;
+            solverIterations += stepSolverIterations;
+        }
 
         summary.tFinal = t;
         summary.acceptedSteps = stepIdx;
         summary.qFinal = qE;
         summary.uFinal = uE;
         summary.minGapFinal = query.minGap;
+        summary.scarDepthFinal = currentScarDepth;
+        summary.scarLayerDepthFinal = scarLayerDepth;
+        summary.dragForceFinal = scarDrag.force;
+        summary.dragTorqueFinal = scarDrag.torque;
+        summary.projectedAreaFinal = scarDrag.projectedArea;
+        summary.dragPowerTransFinal = dragPowerTrans;
+        summary.dragPowerRotFinal = dragPowerRot;
+        summary.dragWorkTransFinal = dragWorkTrans;
+        summary.dragWorkRotFinal = dragWorkRot;
+        summary.contactSteps = contactSteps;
+        summary.solverIterations = solverIterations;
 
         if (result) {
             result->t.push_back(t);
@@ -221,7 +302,23 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             result->u.push_back(uE);
         }
         if (recorder) {
-            recorder->onAcceptedStep(RecordedStepData{ t, qE, uE, query.minGap });
+            recorder->onAcceptedStep(RecordedStepData{
+                t,
+                qE,
+                uE,
+                query.minGap,
+                currentScarDepth,
+                scarLayerDepth,
+                scarDrag.force,
+                scarDrag.torque,
+                scarDrag.projectedArea,
+                dragPowerTrans,
+                dragPowerRot,
+                dragWorkTrans,
+                dragWorkRot,
+                contactSteps,
+                solverIterations
+                });
         }
 
         qA.swap(qE);
