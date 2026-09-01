@@ -58,13 +58,13 @@ struct JorProjectResult
 --------------------------------------------------------------------------- */
 inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     std::size_t nN,
-    const Mat6& MM_inv, const Vec6& rhs, const Vec6& uA,
+    const Mat6& mobility, const Vec6& freeVelocity, const Vec6& uA,
     Real mu, Real alpha,
     Real epsilonN, Real epsilonT,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
     if (nN == 0) {
-        return { uA + MM_inv * rhs, true };
+        return { freeVelocity, true };
     }
 
     const Eigen::Index nNI = static_cast<Eigen::Index>(nN);
@@ -80,11 +80,11 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     auto PN = ws.PNsub.head(nNI);
     auto PT = ws.PTsub.topRows(nNI);
 
-    // Precompute MM^{-1} W once per solve so the iteration itself only sees
+    // Precompute the generalized mobility times W once per solve so the iteration only sees
     // matrix-vector products in the current contact subspace.
-    MWN.noalias() = MM_inv * WN;
-    MWT1.noalias() = MM_inv * WT1;
-    MWT2.noalias() = MM_inv * WT2;
+    MWN.noalias() = mobility * WN;
+    MWT1.noalias() = mobility * WT1;
+    MWT2.noalias() = mobility * WT2;
 
     // The diagonal maxima define the Jacobi relaxation scales for normal and
     // tangential updates. These are equivalent to the diagonal entries of
@@ -102,7 +102,7 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
 
     const Real rN = alpha / maxDiagN;
     const Real rT = alpha / maxDiagT;
-    const Vec6 base = uA + MM_inv * rhs;
+    const Vec6& base = freeVelocity;
     const bool zeroRestitution = (epsilonN == Real(0) && epsilonT == Real(0));
 
     if (!zeroRestitution) {

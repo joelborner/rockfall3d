@@ -36,6 +36,8 @@
     settle_linear_speed="0.1"
     settle_angular_speed="0.1"/>
 
+<integrator type="schweizer"/>
+
 <solver
     type="sor-prox"
     alpha="1"

@@ -1,6 +1,26 @@
 #include "rock.hpp"
 #include "quickhull.hpp"
 #include <Eigen/Geometry>
+#include <limits>
+#include <stdexcept>
+
+namespace {
+
+Eigen::Matrix<Real, 7, 1> normalized_configuration(
+    const Eigen::Matrix<Real, 7, 1>& q)
+{
+    Eigen::Matrix<Real, 7, 1> result = q;
+    Quat orientation(q(3), q(4), q(5), q(6));
+    if (!orientation.coeffs().allFinite()
+        || orientation.squaredNorm() <= std::numeric_limits<Real>::epsilon()) {
+        throw std::invalid_argument("rock orientation must be a finite, nonzero quaternion");
+    }
+    orientation.normalize();
+    result.segment<4>(3) << orientation.w(), orientation.x(), orientation.y(), orientation.z();
+    return result;
+}
+
+} // namespace
 
 
 Rock::Rock(MatX verts, Real rho, const Vec6& u0_in,
@@ -9,7 +29,7 @@ Rock::Rock(MatX verts, Real rho, const Vec6& u0_in,
     m_nVert(m_KrSP.cols()),
     m_density(rho),
     m_u0(u0_in),
-    m_q0(q0_in)
+    m_q0(normalized_configuration(q0_in))
 {
     compute_mass_inertia_volume();
     build_constant_matrices();
@@ -20,7 +40,7 @@ Rock Rock::withInitialState(const Vec6& u0_in,
 {
     Rock copy(*this);
     copy.m_u0 = u0_in;
-    copy.m_q0 = q0_in;
+    copy.m_q0 = normalized_configuration(q0_in);
     return copy;
 }
 

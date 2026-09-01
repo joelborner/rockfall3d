@@ -133,6 +133,7 @@ Required tags:
 - `<starts/>`
 - `<simulation/>`
 - `<stop/>`
+- `<integrator/>`
 - `<solver/>`
 
 Optional tags:
@@ -220,6 +221,26 @@ Required attributes:
 | `atol` | Absolute tolerance |
 | `rtol` | Relative tolerance |
 | `maxiter` | Maximum iterations per contact solve |
+
+### `<integrator/>`
+
+Required attributes:
+
+| Attribute | Meaning |
+|---|---|
+| `type` | Rotational integrator. Options: `schweizer`, `capobianco` |
+
+The `schweizer` integrator uses the energy-consistent pseudo-implicit rotational update described by Schweizer (2015). The `capobianco` integrator denotes the complete published stability-preserving method of Leine et al. (2021): implicit midpoint free rotation followed by the spin-preserving orientation correction. This is the method named `CAPOBIANCO2` in the predecessor code.
+
+Optional attributes for `capobianco`:
+
+| Attribute | Default | Meaning |
+|---|---|---|
+| `atol` | `1e-10` | Absolute tolerance for the free-rotation Newton solve |
+| `rtol` | `1e-10` | Relative tolerance for the free-rotation Newton solve |
+| `maxiter` | `50` | Maximum Newton iterations per time step |
+
+References: [Schweizer (2015)](https://doi.org/10.3929/ethz-a-010464319) and [Leine et al. (2021)](https://doi.org/10.1007/s11044-021-09792-y).
 
 ### `<roughness/>`
 
@@ -368,6 +389,8 @@ Notes:
     settle_min_steps="100"
     settle_linear_speed="0.1"
     settle_angular_speed="0.1"/>
+
+<integrator type="schweizer"/>
 
 <solver
     type="jor-prox"

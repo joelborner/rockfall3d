@@ -7,31 +7,6 @@
 
 namespace {
 
-// Transforms 6-dimensional generalised velocities (vx,vy,vz,wx,wy,wz)
-// into the 7-dimensional derivative d/dt(x,y,z,e0,e1,e2,e3).
-static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
-    const Vec6& u)
-{
-    Eigen::Matrix<Real, 7, 1> qprime;
-
-    const Real wx = u(3), wy = u(4), wz = u(5);
-
-    const Real e0 = q(3);
-    const Real e1 = q(4);
-    const Real e2 = q(5);
-    const Real e3 = q(6);
-
-    qprime(0) = u(0);
-    qprime(1) = u(1);
-    qprime(2) = u(2);
-    qprime(3) = Real(-0.5) * (e1 * wx + e2 * wy + e3 * wz);
-    qprime(4) = Real(0.5) * (e0 * wx - e3 * wy + e2 * wz);
-    qprime(5) = Real(0.5) * (e3 * wx + e0 * wy - e1 * wz);
-    qprime(6) = Real(0.5) * (-e2 * wx + e1 * wy + e0 * wz);
-
-    return qprime;
-}
-
 // Shared fixed-step kernel used by both the in-memory and recorder-based APIs.
 // The scheme follows the same high-level structure throughout:
 // 1. build midpoint state qM
@@ -39,7 +14,9 @@ static Eigen::Matrix<Real, 7, 1> qdot(const Eigen::Matrix<Real, 7, 1>& q,
 // 3. solve contact impulses with the configured prox solver if needed
 // 4. advance to the end state
 // 5. accept, record, and continue with the next fixed step
+template <typename RotationalIntegrator>
 TimeStepperRunSummary run_core(const TimeStepper& stepper,
+    const RotationalIntegrator& integrator,
     Real mu,
     const Terrain& dem,
     const Rock& rock,
@@ -102,7 +79,7 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     ArrX PN = ArrX::Zero(static_cast<Eigen::Index>(rock.nVert()));
     MatX PT = MatX::Zero(static_cast<Eigen::Index>(rock.nVert()), 2);
 
-    const Mat6 MM_inv = rock.massMatrix().inverse();
+    const Mat3 inertiaInv = rock.inertiaK().inverse();
 
     workspace.terrain.ensureVertexCapacity(rock.nVert());
     workspace.terrain.ensureContactCapacity(rock.nVert());
@@ -113,13 +90,9 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
         const Real stepDt = std::min(dt, tEnd - t);
 
         // Evaluate contact at the midpoint of the fixed step.
-        const auto qM = qA + qdot(qA, uA) * (stepDt * Real(0.5));
-        Vec6 hM = Vec6::Zero();
-        hM(2) = -rock.mass() * Real(9.81);
-        const Vec6 rhs = hM * stepDt;
+        const auto qM = make_midpoint_configuration(qA, uA, stepDt);
 
         Quat quatK(qM(3), qM(4), qM(5), qM(6));
-        quatK.normalize();
         const Mat3 AIK = quatK.toRotationMatrix();
         const Vec3 xM = qM.head<3>();
 
@@ -134,6 +107,13 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             summary.stopReason = (query.state == TerrainContainment::NoData)
                 ? TimeStepperStopReason::NoData
                 : TimeStepperStopReason::OutOfBounds;
+            break;
+        }
+
+        const IntegratorFreeStep freeStep = integrator.prepareFreeStep(
+            rock.mass(), rock.inertiaK(), inertiaInv, uA, stepDt);
+        if (!freeStep.converged) {
+            summary.stopReason = TimeStepperStopReason::IntegratorNonConvergence;
             break;
         }
 
@@ -162,14 +142,16 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
             bool converged = false;
             if (stepper.solverType == ContactSolverType::SorProx) {
-                const SorProjectResult solve = sor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+                const SorProjectResult solve = sor_project(workspace.solver, query.contactCount,
+                    freeStep.mobility, freeStep.velocity, uA,
                     mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
             }
             else {
-                const JorProjectResult solve = jor_project(workspace.solver, query.contactCount, MM_inv, rhs, uA,
+                const JorProjectResult solve = jor_project(workspace.solver, query.contactCount,
+                    freeStep.mobility, freeStep.velocity, uA,
                     mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
@@ -189,22 +171,13 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             }
         }
         else {
-            uE = uA + MM_inv * rhs;
+            uE = freeStep.velocity;
             PN.setZero();
             PT.setZero();
         }
 
-        if (summary.stopReason == TimeStepperStopReason::SolverNonConvergence) {
-            break;
-        }
-
-        // Trapezoidal-style state update using midpoint kinematics and the
-        // average of old/new generalized velocities.
-        Eigen::Matrix<Real, 7, 1> qE =
-            (qA + qdot(qM, (uA + uE) * Real(0.5)) * stepDt).eval();
-        Quat qc(qE(3), qE(4), qE(5), qE(6));
-        qc.normalize();
-        qE.segment<4>(3) << qc.w(), qc.x(), qc.y(), qc.z();
+        Eigen::Matrix<Real, 7, 1> qE = integrator.finishConfiguration(
+            qA, qM, uA, uE, rock.inertiaK(), freeStep, stepDt);
 
         t += stepDt;
         ++stepIdx;
@@ -253,6 +226,35 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     return summary;
 }
 
+TimeStepperRunSummary run_dispatched(const TimeStepper& stepper,
+    Real mu,
+    const Terrain& dem,
+    const Rock& rock,
+    Real dt,
+    TimeStepperWorkspace& workspace,
+    const TimeStepperStopCriteria& stop,
+    TimeStepperResult* result,
+    TrajectoryRecorder* recorder)
+{
+    switch (stepper.integrator.type) {
+    case RotationalIntegratorType::Schweizer:
+        return run_core(stepper, SchweizerIntegrator{}, mu, dem, rock, dt,
+            workspace, stop, result, recorder);
+    case RotationalIntegratorType::Capobianco:
+        return run_core(stepper,
+            CapobiancoIntegrator{
+                stepper.integrator.atol,
+                stepper.integrator.rtol,
+                stepper.integrator.maxiter
+            },
+            mu, dem, rock, dt, workspace, stop, result, recorder);
+    }
+
+    TimeStepperRunSummary summary;
+    summary.stopReason = TimeStepperStopReason::InvalidInput;
+    return summary;
+}
+
 } // namespace
 
 TimeStepperResult
@@ -271,7 +273,7 @@ TimeStepper::run(Real mu, const Terrain& dem,
     const TimeStepperStopCriteria& stop) const
 {
     TimeStepperResult result;
-    run_core(*this, mu, dem, rock, dt, workspace, stop, &result, nullptr);
+    run_dispatched(*this, mu, dem, rock, dt, workspace, stop, &result, nullptr);
     return result;
 }
 
@@ -292,5 +294,5 @@ TimeStepper::runRecorded(Real mu, const Terrain& dem,
     TrajectoryRecorder& recorder,
     const TimeStepperStopCriteria& stop) const
 {
-    return run_core(*this, mu, dem, rock, dt, workspace, stop, nullptr, &recorder);
+    return run_dispatched(*this, mu, dem, rock, dt, workspace, stop, nullptr, &recorder);
 }

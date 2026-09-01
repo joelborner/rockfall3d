@@ -397,6 +397,7 @@ InitialPoseResult make_initial_pose(const Terrain& dem,
 TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
 {
     TimeStepper step;
+    step.integrator = cfg.integrator;
     step.solverType = cfg.solver.type;
     step.alpha = cfg.solver.alpha;
     step.atol = cfg.solver.atol;
@@ -709,7 +710,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     }
                 }
 
-                const bool failed = (finalStopReason == TimeStepperStopReason::SolverNonConvergence);
+                const bool failed = finalStopReason == TimeStepperStopReason::SolverNonConvergence
+                    || finalStopReason == TimeStepperStopReason::IntegratorNonConvergence;
 
                 if (hasRecordedSummary && cfg.depositionPointOutput.has_value() && manifestStartZ.has_value()) {
                     depositionRecords[job.runIndex] = DepositionPointRecord{
@@ -757,7 +759,11 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
 
                 if (failed) {
                     std::lock_guard<std::mutex> lock(coutMutex);
-                    std::cout << "Warning: solver did not converge for " << caseName
+                    const char* failedComponent = finalStopReason
+                        == TimeStepperStopReason::IntegratorNonConvergence
+                        ? "rotational integrator"
+                        : "contact solver";
+                    std::cout << "Warning: " << failedComponent << " did not converge for " << caseName
                         << " on thread " << (threadIndex + 1)
                         << "; trajectory marked FAILED after "
                         << acceptedStepCount << " accepted steps.\n";

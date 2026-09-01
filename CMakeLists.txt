@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(rockfall3d LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -23,6 +25,7 @@ add_executable(rockfall3d
     rockfall3d/polygon_utils.hpp
     rockfall3d/raster_output.hpp
     rockfall3d/rock.hpp
+    rockfall3d/rotational_integrator.hpp
     rockfall3d/roughness.hpp
     rockfall3d/sor_solver.hpp
     rockfall3d/terrain.hpp
@@ -56,6 +59,19 @@ else()
         INTERFACE_INCLUDE_DIRECTORIES "${EIGEN3_INCLUDE_DIR}"
     )
     target_link_libraries(rockfall3d PRIVATE Eigen3::Eigen)
+endif()
+
+if(BUILD_TESTING)
+    add_executable(rotational_integrator_tests
+        tests/rotational_integrator_tests.cpp
+        rockfall3d/math_alias.hpp
+        rockfall3d/rotational_integrator.hpp
+    )
+    target_include_directories(rotational_integrator_tests
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
+    )
+    target_link_libraries(rotational_integrator_tests PRIVATE Eigen3::Eigen)
+    add_test(NAME rotational_integrator_tests COMMAND rotational_integrator_tests)
 endif()
 
 if(ROCKFALL3D_WITH_GDAL)

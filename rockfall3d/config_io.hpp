@@ -79,6 +79,7 @@ struct BatchSimulationConfig
     OutputSettings output;
 
     SolverConfig solver;
+    RotationalIntegratorSettings integrator;
     TimeStepperStopCriteria stop;
 };
 
@@ -280,6 +281,15 @@ inline ContactSolverType parse_solver_type(const std::string& text)
     if (value == "jor" || value == "jor-prox" || value == "jor_prox" || value == "jorprox") return ContactSolverType::JorProx;
     if (value == "sor" || value == "sor-prox" || value == "sor_prox" || value == "sorprox") return ContactSolverType::SorProx;
     throw std::runtime_error("unknown solver type: " + text);
+}
+
+inline RotationalIntegratorType parse_integrator_type(const std::string& text)
+{
+    const std::string value = to_lower_copy(trim_copy(text));
+    if (value == "schweizer") return RotationalIntegratorType::Schweizer;
+    if (value == "capobianco") return RotationalIntegratorType::Capobianco;
+    throw std::runtime_error(
+        "unsupported integrator type '" + text + "' (expected 'schweizer' or 'capobianco')");
 }
 
 // parse output format (txt vs. binary)
@@ -608,12 +618,13 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const auto simulationTag = find_tag_attributes(xml, "simulation");
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
+    const auto integratorTag = find_tag_attributes(xml, "integrator");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
     const auto outputTag = find_tag_block(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
-    if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag) {
-        throw std::runtime_error("config XML must contain self-closing <terrain/>, <rocks/>, <starts/>, <simulation/>, <stop/>, and <solver/> tags");
+    if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag || !integratorTag) {
+        throw std::runtime_error("config XML must contain self-closing <terrain/>, <rocks/>, <starts/>, <simulation/>, <stop/>, <integrator/>, and <solver/> tags");
     }
 
     cfg.demPath = resolve_relative(baseDir, require_attr(*terrainTag, "dem", "terrain"));
@@ -669,6 +680,23 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.stop.settleMinSteps = parse_number<std::uint32_t>(require_attr(*stopTag, "settle_min_steps", "stop"), "settle_min_steps");
     cfg.stop.settleLinearSpeed = parse_number<Real>(require_attr(*stopTag, "settle_linear_speed", "stop"), "settle_linear_speed");
     cfg.stop.settleAngularSpeed = parse_number<Real>(require_attr(*stopTag, "settle_angular_speed", "stop"), "settle_angular_speed");
+
+    cfg.integrator.type = parse_integrator_type(require_attr(*integratorTag, "type", "integrator"));
+    if (const auto value = optional_attr(*integratorTag, "atol")) {
+        cfg.integrator.atol = parse_number<Real>(*value, "integrator atol");
+    }
+    if (const auto value = optional_attr(*integratorTag, "rtol")) {
+        cfg.integrator.rtol = parse_number<Real>(*value, "integrator rtol");
+    }
+    if (const auto value = optional_attr(*integratorTag, "maxiter")) {
+        cfg.integrator.maxiter = parse_number<std::uint32_t>(*value, "integrator maxiter");
+    }
+    if (cfg.integrator.atol < Real(0) || cfg.integrator.rtol < Real(0)) {
+        throw std::runtime_error("integrator tolerances must be non-negative");
+    }
+    if (cfg.integrator.maxiter == 0) {
+        throw std::runtime_error("integrator maxiter must be at least 1");
+    }
 
     const std::string solverTypeText = optional_attr(*solverTag, "type")
         .value_or(optional_attr(*solverTag, "method")

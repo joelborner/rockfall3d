@@ -4,6 +4,7 @@
 #include "terrain.hpp"
 #include "contact_wmat.hpp"
 #include "jor_solver.hpp"
+#include "rotational_integrator.hpp"
 #include "sor_solver.hpp"
 
 #include <optional>
@@ -28,7 +29,8 @@ enum class TimeStepperStopReason : std::uint8_t
     MaxTime = 4,
     MaxSteps = 5,
     InvalidInput = 6,
-    SolverNonConvergence = 7
+    SolverNonConvergence = 7,
+    IntegratorNonConvergence = 8
 };
 
 // returns strings for the reached stop criterion
@@ -42,6 +44,7 @@ inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
     case TimeStepperStopReason::MaxSteps: return "max_steps";
     case TimeStepperStopReason::InvalidInput: return "invalid_input";
     case TimeStepperStopReason::SolverNonConvergence: return "solver_nonconvergence";
+    case TimeStepperStopReason::IntegratorNonConvergence: return "integrator_nonconvergence";
     default: return "unknown";
     }
 }
@@ -87,6 +90,8 @@ struct TimeStepperWorkspace
 class TimeStepper
 {
 public:
+    RotationalIntegratorSettings integrator;
+
     // Contact solver variant and shared scalar iteration parameters.
     ContactSolverType solverType = ContactSolverType::JorProx;
     Real alpha = Real(0.5);
