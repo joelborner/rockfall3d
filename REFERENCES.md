@@ -36,7 +36,8 @@ Relevant in this project for:
 
 ## Nonsmooth Rigid-Body Dynamics and Hard Contact
 
-- Leine, R. I., Schweizer, A., Christen, M., Glover, J., Bartelt, P., & Gerber, W. (2014). *Simulation of rockfall trajectories with consideration of rock shape*. Multibody System Dynamics, 32, 241-271.
+- Acary, V., & Bourrier, F. (2021). *Coulomb friction with rolling resistance as a cone complementarity problem*. European Journal of Mechanics - A/Solids, 85, 104046. https://doi.org/10.1016/j.euromechsol.2020.104046
+- Leine, R. I., Schweizer, A., Christen, M., Glover, J., Bartelt, P., & Gerber, W. (2014). *Simulation of rockfall trajectories with consideration of rock shape*. Multibody System Dynamics, 32, 241-271. https://doi.org/10.1007/s11044-013-9393-4
 - Leine, R. I., & Nijmeijer, H. (2004). *Dynamics and Bifurcations of Non-Smooth Mechanical Systems*. Springer.
 - Leine, R. I., & van de Wouw, N. (2008). *Stability and Convergence of Mechanical Systems with Unilateral Constraints*. Springer.
 - Leine, R. I. *An Introduction to Nonsmooth Dynamics*, to be published by Springer.
@@ -44,4 +45,6 @@ Relevant in this project for:
 Relevant in this project for:
 
 - rigid-body time stepping with unilateral contact and frictional impact/contact laws
+- the slippage-dependent Coulomb coefficient and its internal-state evolution
+- the per-contact rolling-friction cone, maximum-dissipation law, and closed-form cone projection
 - the general nonsmooth dynamics framework behind the contact formulation

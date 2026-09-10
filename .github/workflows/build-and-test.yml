@@ -71,6 +71,11 @@ jobs:
         run: |
           cmake --build build/windows-release --config Release --parallel
 
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows-release -C Release --output-on-failure
+
       - name: Clean old test output
         shell: pwsh
         run: |

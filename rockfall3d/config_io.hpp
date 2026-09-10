@@ -69,7 +69,6 @@ struct BatchSimulationConfig
 
     std::uint32_t randomOrientations{ 1 };
     Real rockDensity{ Real(2500.0) };
-    Real mu{ Real(0.5) };
     Real epsilonN{ Real(0) };
     Real epsilonT{ Real(0) };
     Real dt{ Real(0.002) };
@@ -81,6 +80,8 @@ struct BatchSimulationConfig
     OutputSettings output;
 
     SolverConfig solver;
+    RotationalIntegratorSettings integrator;
+    TerrainInteractionSettings terrainInteractions;
     TimeStepperStopCriteria stop;
 };
 
@@ -282,6 +283,15 @@ inline ContactSolverType parse_solver_type(const std::string& text)
     if (value == "jor" || value == "jor-prox" || value == "jor_prox" || value == "jorprox") return ContactSolverType::JorProx;
     if (value == "sor" || value == "sor-prox" || value == "sor_prox" || value == "sorprox") return ContactSolverType::SorProx;
     throw std::runtime_error("unknown solver type: " + text);
+}
+
+inline RotationalIntegratorType parse_integrator_type(const std::string& text)
+{
+    const std::string value = to_lower_copy(trim_copy(text));
+    if (value == "schweizer") return RotationalIntegratorType::Schweizer;
+    if (value == "capobianco") return RotationalIntegratorType::Capobianco;
+    throw std::runtime_error(
+        "unsupported integrator type '" + text + "' (expected 'schweizer' or 'capobianco')");
 }
 
 // parse output format (txt vs. binary)
@@ -606,22 +616,102 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     const fs::path baseDir = configPath.parent_path();
     const std::string xml = read_text_file(configPath);
 
-    const auto terrainTag = find_tag_attributes(xml, "terrain");
+    const auto terrainSelfClosingTag = find_tag_attributes(xml, "terrain");
+    const auto terrainBlock = find_tag_block(xml, "terrain");
+    std::optional<std::unordered_map<std::string, std::string>> terrainTag;
+    if (terrainSelfClosingTag && terrainBlock) {
+        throw std::runtime_error("config XML must contain only one <terrain> definition");
+    }
+    if (terrainSelfClosingTag) terrainTag = *terrainSelfClosingTag;
+    if (terrainBlock) terrainTag = terrainBlock->attrs;
     const auto rocksTag = find_tag_attributes(xml, "rocks");
     const auto startsTag = find_tag_attributes(xml, "starts");
     const auto simulationTag = find_tag_attributes(xml, "simulation");
     const auto stopTag = find_tag_attributes(xml, "stop");
     const auto solverTag = find_tag_attributes(xml, "solver");
+    const auto integratorTag = find_tag_attributes(xml, "integrator");
     const auto roughnessTag = find_tag_attributes(xml, "roughness");
     const auto fragmentationTag = find_tag_attributes(xml, "fragmentation");
     const auto outputTag = find_tag_block(xml, "output");
     const auto debugTag = find_tag_attributes(xml, "debug");
 
-    if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag) {
-        throw std::runtime_error("config XML must contain self-closing <terrain/>, <rocks/>, <starts/>, <simulation/>, <stop/>, and <solver/> tags");
+    if (!terrainTag || !rocksTag || !startsTag || !simulationTag || !stopTag || !solverTag || !integratorTag) {
+        throw std::runtime_error("config XML must contain <terrain>, <rocks/>, <starts/>, <simulation/>, <stop/>, <integrator/>, and <solver/> tags");
     }
 
     cfg.demPath = resolve_relative(baseDir, require_attr(*terrainTag, "dem", "terrain"));
+    bool foundCoulombFriction = false;
+    if (terrainBlock) {
+        bool foundRollingFriction = false;
+        for (const auto& interactionTag : find_all_tag_attributes(
+            terrainBlock->innerXml, "interaction")) {
+            const std::string type = to_lower_copy(trim_copy(
+                require_attr(interactionTag, "type", "interaction")));
+            if (type == "rolling_friction" || type == "rolling-friction"
+                || type == "rolling friction") {
+                if (foundRollingFriction) {
+                    throw std::runtime_error("<terrain> may contain only one rolling_friction interaction");
+                }
+                cfg.terrainInteractions.rollingFrictionCoefficient = parse_number<Real>(
+                    require_attr(interactionTag, "mu_r", "rolling_friction interaction"),
+                    "rolling friction mu_r");
+                if (!(cfg.terrainInteractions.rollingFrictionCoefficient >= Real(0))) {
+                    throw std::runtime_error("rolling friction mu_r must be non-negative");
+                }
+                foundRollingFriction = true;
+            }
+            else if (type == "coulomb_friction" || type == "coulomb-friction"
+                || type == "coulomb friction") {
+                if (foundCoulombFriction) {
+                    throw std::runtime_error("<terrain> may contain only one coulomb_friction interaction");
+                }
+
+                const auto muAttr = optional_attr(interactionTag, "mu");
+                const auto muMinAttr = optional_attr(interactionTag, "mumin");
+                const auto muMaxAttr = optional_attr(interactionTag, "mumax");
+                const auto kappaAttr = optional_attr(interactionTag, "kappa");
+                const auto betaAttr = optional_attr(interactionTag, "beta");
+                const bool hasAnySlippageAttribute = muMinAttr || muMaxAttr
+                    || kappaAttr || betaAttr;
+
+                auto& friction = cfg.terrainInteractions.coulombFriction;
+                if (muAttr && !hasAnySlippageAttribute) {
+                    friction.model = CoulombFrictionModel::Constant;
+                    friction.mu = parse_number<Real>(*muAttr, "coulomb friction mu");
+                    if (!std::isfinite(friction.mu) || friction.mu < Real(0)) {
+                        throw std::runtime_error("coulomb friction mu must be finite and non-negative");
+                    }
+                }
+                else if (!muAttr && muMinAttr && muMaxAttr && kappaAttr && betaAttr) {
+                    friction.model = CoulombFrictionModel::SlippageDependent;
+                    friction.muMin = parse_number<Real>(*muMinAttr, "coulomb friction mumin");
+                    friction.muMax = parse_number<Real>(*muMaxAttr, "coulomb friction mumax");
+                    friction.kappa = parse_number<Real>(*kappaAttr, "coulomb friction kappa");
+                    friction.beta = parse_number<Real>(*betaAttr, "coulomb friction beta");
+                    if (!std::isfinite(friction.muMin) || friction.muMin < Real(0)) {
+                        throw std::runtime_error("coulomb friction mumin must be finite and non-negative");
+                    }
+                    if (!std::isfinite(friction.muMax) || friction.muMax < friction.muMin) {
+                        throw std::runtime_error("coulomb friction mumax must be finite and at least mumin");
+                    }
+                    if (!std::isfinite(friction.kappa) || friction.kappa < Real(0)) {
+                        throw std::runtime_error("coulomb friction kappa must be finite and non-negative");
+                    }
+                    if (!std::isfinite(friction.beta) || friction.beta < Real(0)) {
+                        throw std::runtime_error("coulomb friction beta must be finite and non-negative");
+                    }
+                }
+                else {
+                    throw std::runtime_error(
+                        "coulomb_friction requires either only mu, or all of mumin, mumax, kappa, and beta");
+                }
+                foundCoulombFriction = true;
+            }
+            else {
+                throw std::runtime_error("unknown terrain interaction type: " + type);
+            }
+        }
+    }
     cfg.rockListPath = resolve_relative(baseDir, require_attr(*rocksTag, "list", "rocks"));
     cfg.rockDensity = parse_number<Real>(require_attr(*rocksTag, "density", "rocks"), "rock density");
     cfg.randomOrientations = parse_number<std::uint32_t>(require_attr(*rocksTag, "random_orientations", "rocks"), "random_orientations");
@@ -629,7 +719,22 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
 
     cfg.startPointsPath = resolve_relative(baseDir, require_attr(*startsTag, "list", "starts"));
 
-    cfg.mu = parse_number<Real>(require_attr(*simulationTag, "mu", "simulation"), "mu");
+    if (const auto legacyMuAttr = optional_attr(*simulationTag, "mu")) {
+        if (foundCoulombFriction) {
+            throw std::runtime_error(
+                "define Coulomb friction either in <simulation mu=\"...\"> or as a terrain interaction, not both");
+        }
+        auto& friction = cfg.terrainInteractions.coulombFriction;
+        friction.model = CoulombFrictionModel::Constant;
+        friction.mu = parse_number<Real>(*legacyMuAttr, "mu");
+        if (!std::isfinite(friction.mu) || friction.mu < Real(0)) {
+            throw std::runtime_error("mu must be finite and non-negative");
+        }
+    }
+    else if (!foundCoulombFriction) {
+        throw std::runtime_error(
+            "Coulomb friction must be defined by <simulation mu=\"...\"> or a coulomb_friction terrain interaction");
+    }
     if (const auto enAttr = optional_attr(*simulationTag, "en")) {
         cfg.epsilonN = parse_number<Real>(*enAttr, "en");
         if (!(cfg.epsilonN >= Real(0) && cfg.epsilonN <= Real(1))) {
@@ -674,6 +779,23 @@ inline BatchSimulationConfig load_batch_simulation_config(const fs::path& config
     cfg.stop.settleMinSteps = parse_number<std::uint32_t>(require_attr(*stopTag, "settle_min_steps", "stop"), "settle_min_steps");
     cfg.stop.settleLinearSpeed = parse_number<Real>(require_attr(*stopTag, "settle_linear_speed", "stop"), "settle_linear_speed");
     cfg.stop.settleAngularSpeed = parse_number<Real>(require_attr(*stopTag, "settle_angular_speed", "stop"), "settle_angular_speed");
+
+    cfg.integrator.type = parse_integrator_type(require_attr(*integratorTag, "type", "integrator"));
+    if (const auto value = optional_attr(*integratorTag, "atol")) {
+        cfg.integrator.atol = parse_number<Real>(*value, "integrator atol");
+    }
+    if (const auto value = optional_attr(*integratorTag, "rtol")) {
+        cfg.integrator.rtol = parse_number<Real>(*value, "integrator rtol");
+    }
+    if (const auto value = optional_attr(*integratorTag, "maxiter")) {
+        cfg.integrator.maxiter = parse_number<std::uint32_t>(*value, "integrator maxiter");
+    }
+    if (cfg.integrator.atol < Real(0) || cfg.integrator.rtol < Real(0)) {
+        throw std::runtime_error("integrator tolerances must be non-negative");
+    }
+    if (cfg.integrator.maxiter == 0) {
+        throw std::runtime_error("integrator maxiter must be at least 1");
+    }
 
     const std::string solverTypeText = optional_attr(*solverTag, "type")
         .value_or(optional_attr(*solverTag, "method")

@@ -1,5 +1,6 @@
 #pragma once
 #include "math_alias.hpp"
+#include "rolling_friction.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -20,6 +21,12 @@ struct ContactSolverWorkspace
     ArrX gammaT2A;
     ArrX PNsub;
     MatX PTsub;
+    MatX WR1;
+    MatX WR2;
+    MatX MWR1;
+    MatX MWR2;
+    MatX PRsub;
+    ArrX rollingStep;
 
     void ensureContactCapacity(std::size_t n)
     {
@@ -44,6 +51,23 @@ struct ContactSolverWorkspace
             PTsub.resize(nI, 2);
         }
     }
+
+    void ensureRollingCapacity(std::size_t n)
+    {
+        const Eigen::Index nI = static_cast<Eigen::Index>(n);
+        if (WR1.cols() < nI) {
+            WR1.resize(6, nI);
+            WR2.resize(6, nI);
+            MWR1.resize(6, nI);
+            MWR2.resize(6, nI);
+        }
+        if (PRsub.rows() < nI) {
+            PRsub.resize(nI, 2);
+        }
+        if (rollingStep.size() < nI) {
+            rollingStep.resize(nI);
+        }
+    }
 };
 
 struct JorProjectResult
@@ -52,20 +76,31 @@ struct JorProjectResult
     bool converged{ true };
 };
 
-/* -------------------------------------------------------------------------
-   Jacobi over-relaxation prox solver using caller-owned scratch storage.
-   Inputs : WN, WT1, WT2 already filled in workspace, nN active contacts.
---------------------------------------------------------------------------- */
+/// Jacobi over-relaxation proximal solver with a compile-time contact law.
+///
+/// All contacts use one velocity snapshot per sweep. SOR instead feeds each
+/// contact's impulse increment into the velocity immediately.
+/// RollingEnabled=false uses [PN, PT1, PT2], with separate normal and
+/// tangential-disc projections. RollingEnabled=true adds two moment impulses
+/// [PR1, PR2] and projects jointly onto the rolling-friction cone, with the
+/// De Saxce correction required for non-associated friction.
+///
+/// mu is dimensionless; muR is the rolling-resistance length in metres.
+/// The caller supplies initialized active operators/impulses and workspace
+/// capacity, including rolling storage only for the enabled specialization.
+/// The disabled specialization neither accesses nor allocates rolling storage.
+///
+/// Existing relaxation scales and stopping norms are retained. Convergence
+/// measures impulse-iterate change, not an independent contact-law residual.
+template <bool RollingEnabled>
 inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     std::size_t nN,
-    const Mat6& MM_inv, const Vec6& rhs, const Vec6& uA,
-    Real mu, Real alpha,
+    const Mat6& mobility, const Vec6& freeVelocity, const Vec6& uA,
+    Real mu, Real muR, Real alpha,
     Real epsilonN, Real epsilonT,
     Real atol, Real rtol, std::uint32_t maxiter)
 {
-    if (nN == 0) {
-        return { uA + MM_inv * rhs, true };
-    }
+    if (nN == 0) return { freeVelocity, true };
 
     const Eigen::Index nNI = static_cast<Eigen::Index>(nN);
     auto WN = ws.WN.leftCols(nNI);
@@ -80,101 +115,176 @@ inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
     auto PN = ws.PNsub.head(nNI);
     auto PT = ws.PTsub.topRows(nNI);
 
-    // Precompute MM^{-1} W once per solve so the iteration itself only sees
-    // matrix-vector products in the current contact subspace.
-    MWN.noalias() = MM_inv * WN;
-    MWT1.noalias() = MM_inv * WT1;
-    MWT2.noalias() = MM_inv * WT2;
+    MWN.noalias() = mobility * WN;
+    MWT1.noalias() = mobility * WT1;
+    MWT2.noalias() = mobility * WT2;
 
-    // The diagonal maxima define the Jacobi relaxation scales for normal and
-    // tangential updates. These are equivalent to the diagonal entries of
-    // W^T M^{-1} W but avoid materializing the full dense matrices.
-    Real maxDiagN = Real(0);
-    Real maxDiagT = Real(0);
-    for (Eigen::Index j = 0; j < nNI; ++j) {
-        maxDiagN = std::max(maxDiagN, WN.col(j).dot(MWN.col(j)));
-        maxDiagT = std::max(maxDiagT, WT1.col(j).dot(MWT1.col(j)));
-        maxDiagT = std::max(maxDiagT, WT2.col(j).dot(MWT2.col(j)));
+    Real rN = Real(0), rT = Real(0);
+    Real r = Real(0);
+    if constexpr (RollingEnabled) {
+        auto WR1 = ws.WR1.leftCols(nNI);
+        auto WR2 = ws.WR2.leftCols(nNI);
+        auto MWR1 = ws.MWR1.leftCols(nNI);
+        auto MWR2 = ws.MWR2.leftCols(nNI);
+        MWR1.noalias() = mobility * WR1;
+        MWR2.noalias() = mobility * WR2;
+
+        // Preserve the rolling JOR path's single global diagonal scale.
+        Real maxDiag = Real(0);
+        for (Eigen::Index j = 0; j < nNI; ++j) {
+            maxDiag = std::max(maxDiag, WN.col(j).dot(MWN.col(j)));
+            maxDiag = std::max(maxDiag, WT1.col(j).dot(MWT1.col(j)));
+            maxDiag = std::max(maxDiag, WT2.col(j).dot(MWT2.col(j)));
+            maxDiag = std::max(maxDiag, WR1.col(j).dot(MWR1.col(j)));
+            maxDiag = std::max(maxDiag, WR2.col(j).dot(MWR2.col(j)));
+        }
+        if (!(maxDiag > Real(0))) maxDiag = Real(1);
+        r = alpha / maxDiag;
+    }
+    else {
+        // Preserve the Coulomb path's separate global normal/tangent scales.
+        Real maxDiagN = Real(0), maxDiagT = Real(0);
+        for (Eigen::Index j = 0; j < nNI; ++j) {
+            maxDiagN = std::max(maxDiagN, WN.col(j).dot(MWN.col(j)));
+            maxDiagT = std::max(maxDiagT, WT1.col(j).dot(MWT1.col(j)));
+            maxDiagT = std::max(maxDiagT, WT2.col(j).dot(MWT2.col(j)));
+        }
+        if (!(maxDiagN > Real(0))) maxDiagN = Real(1);
+        if (!(maxDiagT > Real(0))) maxDiagT = Real(1);
+        rN = alpha / maxDiagN;
+        rT = alpha / maxDiagT;
     }
 
-    if (!(maxDiagN > Real(0))) maxDiagN = Real(1);
-    if (!(maxDiagT > Real(0))) maxDiagT = Real(1);
-
-    const Real rN = alpha / maxDiagN;
-    const Real rT = alpha / maxDiagT;
-    const Vec6 base = uA + MM_inv * rhs;
-    const bool zeroRestitution = (epsilonN == Real(0) && epsilonT == Real(0));
-
+    const bool zeroRestitution = epsilonN == Real(0) && epsilonT == Real(0);
     if (!zeroRestitution) {
         gammaNA.matrix().noalias() = WN.transpose() * uA;
         gammaT1A.matrix().noalias() = WT1.transpose() * uA;
         gammaT2A.matrix().noalias() = WT2.transpose() * uA;
     }
 
+    const Vec6 base = freeVelocity;
     Vec6 uE = base;
     bool converged = false;
-    for (std::uint32_t it = 0; it < maxiter; ++it)
-    {
-        // Evaluate the current generalized velocity using the latest impulse
-        // iterate.
-        uE = base
-            + MWN * PN.matrix()
-            + MWT1 * PT.col(0).matrix()
-            + MWT2 * PT.col(1).matrix();
-
-        // Convergence metric intentionally mirrors the original formulation:
-        // normal update norm + tangential update norm.
-        Real deltaPN2 = Real(0);
-        Real deltaPT2 = Real(0);
-        Real scalePN2 = Real(0);
-        Real scalePT2 = Real(0);
-
-        for (Eigen::Index j = 0; j < nNI; ++j)
-        {
+    std::uint32_t it = 0;
+    for (;;) {
+        // Fixed Jacobi snapshot, also reconstructed after the final update.
+        if constexpr (RollingEnabled) {
+            uE = base
+                + MWN * PN.matrix()
+                + MWT1 * PT.col(0).matrix()
+                + MWT2 * PT.col(1).matrix()
+                + ws.MWR1.leftCols(nNI) * ws.PRsub.topRows(nNI).col(0).matrix()
+                + ws.MWR2.leftCols(nNI) * ws.PRsub.topRows(nNI).col(1).matrix();
+        }
+        else {
+            uE = base
+                + MWN * PN.matrix()
+                + MWT1 * PT.col(0).matrix()
+                + MWT2 * PT.col(1).matrix();
+        }
+        if (converged || it == maxiter) break;
+        ++it;
+        // No feedback between contacts in this sweep.
+        Real deltaPN2 = Real(0), deltaPT2 = Real(0);
+        Real scalePN2 = Real(0), scalePT2 = Real(0);
+        Real delta2 = Real(0), scale2 = Real(0);
+        for (Eigen::Index j = 0; j < nNI; ++j) {
             const Real oldPN = PN(j);
-            const Real oldPTx = PT(j, 0);
-            const Real oldPTy = PT(j, 1);
-
+            const Real oldPT1 = PT(j, 0), oldPT2 = PT(j, 1);
+            Real oldPR1 = Real(0), oldPR2 = Real(0);
             const Real gammaN = WN.col(j).dot(uE);
             const Real gammaT1 = WT1.col(j).dot(uE);
             const Real gammaT2 = WT2.col(j).dot(uE);
-            const Real XiN = zeroRestitution ? gammaN : (gammaN + epsilonN * gammaNA(j));
-            const Real XiT1 = zeroRestitution ? gammaT1 : (gammaT1 + epsilonT * gammaT1A(j));
-            const Real XiT2 = zeroRestitution ? gammaT2 : (gammaT2 + epsilonT * gammaT2A(j));
+            const Real xiN = zeroRestitution ? gammaN : gammaN + epsilonN * gammaNA(j);
+            const Real xiT1 = zeroRestitution ? gammaT1 : gammaT1 + epsilonT * gammaT1A(j);
+            const Real xiT2 = zeroRestitution ? gammaT2 : gammaT2 + epsilonT * gammaT2A(j);
 
-            const Real newPN = std::max(oldPN - rN * XiN, Real(0));
-            const Real zx = oldPTx - rT * XiT1;
-            const Real zy = oldPTy - rT * XiT2;
-            const Real nz = std::hypot(zx, zy);
-
-            Real newPTx = zx;
-            Real newPTy = zy;
-            if (nz > mu * newPN && nz > Real(0)) {
-                const Real scale = mu * newPN / nz;
-                newPTx *= scale;
-                newPTy *= scale;
+            Real newPN, newPT1, newPT2;
+            Real newPR1 = Real(0), newPR2 = Real(0);
+            if constexpr (RollingEnabled) {
+                oldPR1 = ws.PRsub(j, 0);
+                oldPR2 = ws.PRsub(j, 1);
+                const Real gammaR1 = ws.WR1.col(j).dot(uE);
+                const Real gammaR2 = ws.WR2.col(j).dot(uE);
+                // Joint projection needs this shift to avoid normal dilatancy.
+                newPN = oldPN - r * (xiN
+                    + mu * std::hypot(xiT1, xiT2)
+                    + muR * std::hypot(gammaR1, gammaR2));
+                newPT1 = oldPT1 - r * xiT1;
+                newPT2 = oldPT2 - r * xiT2;
+                newPR1 = oldPR1 - r * gammaR1;
+                newPR2 = oldPR2 - r * gammaR2;
+                project_rolling_friction_cone(
+                    newPN, newPT1, newPT2, newPR1, newPR2, mu, muR);
+            }
+            else {
+                // Separate projections already encode non-associated Coulomb
+                // friction: do NOT add the rolling path's De Saxce shift.
+                newPN = std::max(oldPN - rN * xiN, Real(0));
+                newPT1 = oldPT1 - rT * xiT1;
+                newPT2 = oldPT2 - rT * xiT2;
+                const Real normT = std::hypot(newPT1, newPT2);
+                if (normT > mu * newPN && normT > Real(0)) {
+                    const Real scale = mu * newPN / normT;
+                    newPT1 *= scale;
+                    newPT2 *= scale;
+                }
             }
 
-            PN(j) = newPN;
-            PT(j, 0) = newPTx;
-            PT(j, 1) = newPTy;
-
             const Real dPN = newPN - oldPN;
-            const Real dPTx = newPTx - oldPTx;
-            const Real dPTy = newPTy - oldPTy;
-            deltaPN2 += dPN * dPN;
-            deltaPT2 += dPTx * dPTx + dPTy * dPTy;
-            scalePN2 += newPN * newPN;
-            scalePT2 += newPTx * newPTx + newPTy * newPTy;
+            const Real dPT1 = newPT1 - oldPT1, dPT2 = newPT2 - oldPT2;
+            PN(j) = newPN;
+            PT(j, 0) = newPT1;
+            PT(j, 1) = newPT2;
+            if constexpr (RollingEnabled) {
+                const Real dPR1 = newPR1 - oldPR1, dPR2 = newPR2 - oldPR2;
+                ws.PRsub(j, 0) = newPR1;
+                ws.PRsub(j, 1) = newPR2;
+                delta2 += dPN * dPN + dPT1 * dPT1 + dPT2 * dPT2
+                    + dPR1 * dPR1 + dPR2 * dPR2;
+                scale2 += newPN * newPN + newPT1 * newPT1 + newPT2 * newPT2
+                    + newPR1 * newPR1 + newPR2 * newPR2;
+            }
+            else {
+                deltaPN2 += dPN * dPN;
+                deltaPT2 += dPT1 * dPT1 + dPT2 * dPT2;
+                scalePN2 += newPN * newPN;
+                scalePT2 += newPT1 * newPT1 + newPT2 * newPT2;
+            }
         }
 
-        const Real delta = std::sqrt(deltaPN2) + std::sqrt(deltaPT2);
-        const Real scale = std::sqrt(scalePN2) + std::sqrt(scalePT2);
-        if (delta <= atol + rtol * scale) {
-            converged = true;
-            break;
+        if constexpr (RollingEnabled) {
+            converged = std::sqrt(delta2) <= atol + rtol * std::sqrt(scale2);
+        }
+        else {
+            const Real delta = std::sqrt(deltaPN2) + std::sqrt(deltaPT2);
+            const Real scale = std::sqrt(scalePN2) + std::sqrt(scalePT2);
+            converged = delta <= atol + rtol * scale;
         }
     }
 
+    // Every exit uses the final impulses, including iteration-limit exits.
     return { uE, converged };
+}
+
+/// Compatibility entry point for the three-component Coulomb specialization.
+inline JorProjectResult jor_project(ContactSolverWorkspace& ws,
+    std::size_t nN,
+    const Mat6& mobility, const Vec6& freeVelocity, const Vec6& uA,
+    Real mu, Real alpha, Real epsilonN, Real epsilonT,
+    Real atol, Real rtol, std::uint32_t maxiter)
+{
+    return jor_project<false>(ws, nN, mobility, freeVelocity, uA,
+        mu, Real(0), alpha, epsilonN, epsilonT, atol, rtol, maxiter);
+}
+
+/// Compatibility entry point for the five-component rolling specialization.
+inline JorProjectResult jor_project_rolling(ContactSolverWorkspace& ws,
+    std::size_t nN,
+    const Mat6& mobility, const Vec6& freeVelocity, const Vec6& uA,
+    Real mu, Real muR, Real alpha, Real epsilonN, Real epsilonT,
+    Real atol, Real rtol, std::uint32_t maxiter)
+{
+    return jor_project<true>(ws, nN, mobility, freeVelocity, uA,
+        mu, muR, alpha, epsilonN, epsilonT, atol, rtol, maxiter);
 }

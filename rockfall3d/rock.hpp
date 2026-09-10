@@ -27,19 +27,20 @@ public:
 
     // Geometric data
 
-    std::size_t   nVert() const noexcept { return m_nVert; } // number of vertics
-	const MatX& verticesK() const noexcept { return m_geometry.vertices; } // 3 x n body-frame vertices, COM at origin
-	const ConvexPolyhedron& polyhedronK() const noexcept { return m_geometry; } // convex body-frame mesh, COM at origin
+    std::size_t nVert() const noexcept { return m_nVert; }
+    const MatX& verticesK() const noexcept { return m_geometry.vertices; }
+    const ConvexPolyhedron& polyhedronK() const noexcept { return m_geometry; }
     Real          mass() const noexcept { return m_mass; }
     Real          density() const noexcept { return m_density; }
+    Real          equivalentRadius() const noexcept { return m_equivalentRadius; }
     const Mat3& inertiaK() const noexcept { return m_theta; }
     const Mat6& massMatrix() const noexcept { return m_MM; }
-	const MatX& skewConcat() const noexcept { return m_KrSP_t; } // concatenated skew matrices [tilde(r1) ... tilde(rn)]
+    const MatX& skewConcat() const noexcept { return m_KrSP_t; }
 
     // initial state
     const Vec6& u0() const noexcept { return m_u0; }
     const Eigen::Matrix<Real, 7, 1>& q0() const noexcept { return m_q0; }
-	const Vec3& inputCenterOfMassK() const noexcept { return m_inputCenterOfMassK; } // center of mass of the input mesh, before shifting to origin
+    const Vec3& inputCenterOfMassK() const noexcept { return m_inputCenterOfMassK; }
 
 private:
     ConvexPolyhedron m_geometry;       // convex body-frame mesh, COM at origin
@@ -47,6 +48,7 @@ private:
     std::size_t m_nVert{};
     Real        m_density{};
     Real        m_mass{};
+    Real        m_equivalentRadius{};    // radius of a sphere with the same volume
     Mat3        m_theta{};            // inertia tensor in body frame K
     Mat6        m_MM{};               // block-diagonal generalized mass matrix
     Vec3        m_inputCenterOfMassK = Vec3::Zero();

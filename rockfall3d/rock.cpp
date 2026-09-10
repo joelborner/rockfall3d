@@ -1,6 +1,27 @@
 #include "rock.hpp"
 
+#include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <utility>
+
+namespace {
+
+Eigen::Matrix<Real, 7, 1> normalized_configuration(
+    const Eigen::Matrix<Real, 7, 1>& q)
+{
+    Eigen::Matrix<Real, 7, 1> result = q;
+    Quat orientation(q(3), q(4), q(5), q(6));
+    if (!orientation.coeffs().allFinite()
+        || orientation.squaredNorm() <= std::numeric_limits<Real>::epsilon()) {
+        throw std::invalid_argument("rock orientation must be a finite, nonzero quaternion");
+    }
+    orientation.normalize();
+    result.segment<4>(3) << orientation.w(), orientation.x(), orientation.y(), orientation.z();
+    return result;
+}
+
+} // namespace
 
 Rock::Rock(MatX verts, Real rho, const Vec6& u0_in,
     const Eigen::Matrix<Real, 7, 1>& q0_in)
@@ -14,7 +35,7 @@ Rock::Rock(ConvexPolyhedron geometry, Real rho, const Vec6& u0_in,
     m_nVert(static_cast<std::size_t>(m_geometry.vertices.cols())),
     m_density(rho),
     m_u0(u0_in),
-    m_q0(q0_in)
+    m_q0(normalized_configuration(q0_in))
 {
     compute_mass_inertia_volume();
     build_constant_matrices();
@@ -25,7 +46,7 @@ Rock Rock::withInitialState(const Vec6& u0_in,
 {
     Rock copy(*this);
     copy.m_u0 = u0_in;
-    copy.m_q0 = q0_in;
+    copy.m_q0 = normalized_configuration(q0_in);
     return copy;
 }
 
@@ -36,6 +57,9 @@ void Rock::compute_mass_inertia_volume()
 
     m_inputCenterOfMassK = properties.center;
     m_mass = properties.volume * m_density;
+    constexpr Real pi = Real(3.141592653589793238462643383279502884L);
+    m_equivalentRadius = std::cbrt(
+        Real(3) * properties.volume / (Real(4) * pi));
     m_theta = properties.inertiaAtCenter * m_density;
     m_geometry.vertices.colwise() -= properties.center;
 }

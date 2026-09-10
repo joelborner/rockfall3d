@@ -5,7 +5,10 @@
 #include "contact_wmat.hpp"
 #include "fragmentation.hpp"
 #include "jor_solver.hpp"
+#include "rotational_integrator.hpp"
+#include "rolling_friction.hpp"
 #include "sor_solver.hpp"
+#include "terrain_interactions.hpp"
 
 #include <optional>
 
@@ -29,7 +32,8 @@ enum class TimeStepperStopReason : std::uint8_t
     MaxTime = 4,
     MaxSteps = 5,
     InvalidInput = 6,
-    SolverNonConvergence = 7
+    SolverNonConvergence = 7,
+    IntegratorNonConvergence = 8
 };
 
 // returns strings for the reached stop criterion
@@ -43,6 +47,7 @@ inline const char* stop_reason_name(TimeStepperStopReason reason) noexcept
     case TimeStepperStopReason::MaxSteps: return "max_steps";
     case TimeStepperStopReason::InvalidInput: return "invalid_input";
     case TimeStepperStopReason::SolverNonConvergence: return "solver_nonconvergence";
+    case TimeStepperStopReason::IntegratorNonConvergence: return "integrator_nonconvergence";
     default: return "unknown";
     }
 }
@@ -91,6 +96,9 @@ struct TimeStepperWorkspace
 class TimeStepper
 {
 public:
+    RotationalIntegratorSettings integrator;
+    TerrainInteractionSettings terrainInteractions;
+
     // Contact solver variant and shared scalar iteration parameters.
     ContactSolverType solverType = ContactSolverType::JorProx;
     Real alpha = Real(0.5);
@@ -102,23 +110,20 @@ public:
     std::optional<FragmentationConfig> fragmentation;
 
     // Run and keep all dumped states in memory.
-    TimeStepperResult run(Real mu,
-        const Terrain& dem,
+    TimeStepperResult run(const Terrain& dem,
         const Rock& rock,
         Real dt,
         const TimeStepperStopCriteria& stop = {}) const;
 
     // Run and keep all dumped states in memory, caller provides reusable scratch storage.
-    TimeStepperResult run(Real mu,
-        const Terrain& dem,
+    TimeStepperResult run(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TimeStepperWorkspace& workspace,
         const TimeStepperStopCriteria& stop = {}) const;
 
     // Run and stream accepted states directly to a recorder.
-    TimeStepperRunSummary runRecorded(Real mu,
-        const Terrain& dem,
+    TimeStepperRunSummary runRecorded(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TrajectoryRecorder& recorder,
@@ -126,8 +131,7 @@ public:
         FragmentationShapeWriter* shapeWriter = nullptr) const;
 
     // Recorder-based run with caller-owned scratch storage.
-    TimeStepperRunSummary runRecorded(Real mu,
-        const Terrain& dem,
+    TimeStepperRunSummary runRecorded(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TimeStepperWorkspace& workspace,

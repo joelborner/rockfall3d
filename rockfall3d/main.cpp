@@ -397,6 +397,8 @@ InitialPoseResult make_initial_pose(const Terrain& dem,
 TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
 {
     TimeStepper step;
+    step.integrator = cfg.integrator;
+    step.terrainInteractions = cfg.terrainInteractions;
     step.solverType = cfg.solver.type;
     step.alpha = cfg.solver.alpha;
     step.atol = cfg.solver.atol;
@@ -629,7 +631,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         CompositeTrajectoryRecorder recorder(*trajectoryRecorder, *rasterRecorder);
                         recorder.beginTrajectory(meta, runRock, initialStep);
                         recordedSummary = step.runRecorded(
-                            cfg.mu,
                             dem,
                             runRock,
                             cfg.dt,
@@ -641,7 +642,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     else {
                         trajectoryRecorder->beginTrajectory(meta, runRock, initialStep);
                         recordedSummary = step.runRecorded(
-                            cfg.mu,
                             dem,
                             runRock,
                             cfg.dt,
@@ -674,7 +674,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         });
 
                     recordedSummary = step.runRecorded(
-                        cfg.mu,
                         dem,
                         runRock,
                         cfg.dt,
@@ -687,9 +686,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     acceptedStepCount = recordedSummary.acceptedSteps;
                     stopCriterion = stop_reason_name(recordedSummary.stopReason);
                 }
-                else if (cfg.depositionPointOutput.has_value()) {
+                else if (cfg.depositionPointOutput.has_value() || cfg.fragmentation.has_value()) {
                     recordedSummary = step.runRecorded(
-                        cfg.mu,
                         dem,
                         runRock,
                         cfg.dt,
@@ -735,7 +733,8 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     }
                 }
 
-                const bool failed = (finalStopReason == TimeStepperStopReason::SolverNonConvergence);
+                const bool failed = finalStopReason == TimeStepperStopReason::SolverNonConvergence
+                    || finalStopReason == TimeStepperStopReason::IntegratorNonConvergence;
 
                 if (hasRecordedSummary && cfg.depositionPointOutput.has_value() && manifestStartZ.has_value()) {
                     depositionRecords[job.runIndex] = DepositionPointRecord{
@@ -784,7 +783,11 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
 
                 if (failed) {
                     std::lock_guard<std::mutex> lock(coutMutex);
-                    std::cout << "Warning: solver did not converge for " << caseName
+                    const char* failedComponent = finalStopReason
+                        == TimeStepperStopReason::IntegratorNonConvergence
+                        ? "rotational integrator"
+                        : "contact solver";
+                    std::cout << "Warning: " << failedComponent << " did not converge for " << caseName
                         << " on thread " << (threadIndex + 1)
                         << "; trajectory marked FAILED after "
                         << acceptedStepCount << " accepted steps.\n";
