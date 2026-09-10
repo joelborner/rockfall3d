@@ -26,10 +26,12 @@ add_executable(rockfall3d
     rockfall3d/raster_output.hpp
     rockfall3d/rock.hpp
     rockfall3d/rotational_integrator.hpp
+    rockfall3d/rolling_friction.hpp
     rockfall3d/roughness.hpp
     rockfall3d/sor_solver.hpp
     rockfall3d/terrain.hpp
     rockfall3d/terrain_export.hpp
+    rockfall3d/terrain_interactions.hpp
     rockfall3d/terrain_io.hpp
     rockfall3d/time_stepper.hpp
     rockfall3d/trajectory_format.hpp
@@ -72,6 +74,37 @@ if(BUILD_TESTING)
     )
     target_link_libraries(rotational_integrator_tests PRIVATE Eigen3::Eigen)
     add_test(NAME rotational_integrator_tests COMMAND rotational_integrator_tests)
+
+    add_executable(rolling_friction_tests
+        tests/rolling_friction_tests.cpp
+        rockfall3d/jor_solver.hpp
+        rockfall3d/math_alias.hpp
+        rockfall3d/rolling_friction.hpp
+        rockfall3d/sor_solver.hpp
+    )
+    target_include_directories(rolling_friction_tests
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
+    )
+    target_link_libraries(rolling_friction_tests PRIVATE Eigen3::Eigen)
+    add_test(NAME rolling_friction_tests COMMAND rolling_friction_tests)
+
+    add_executable(contact_solver_tests tests/contact_solver_tests.cpp)
+    target_include_directories(contact_solver_tests
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
+    )
+    target_link_libraries(contact_solver_tests PRIVATE Eigen3::Eigen)
+    add_test(NAME contact_solver_tests COMMAND contact_solver_tests)
+
+    add_executable(terrain_interaction_tests
+        tests/terrain_interaction_tests.cpp
+        rockfall3d/math_alias.hpp
+        rockfall3d/terrain_interactions.hpp
+    )
+    target_include_directories(terrain_interaction_tests
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
+    )
+    target_link_libraries(terrain_interaction_tests PRIVATE Eigen3::Eigen)
+    add_test(NAME terrain_interaction_tests COMMAND terrain_interaction_tests)
 endif()
 
 if(ROCKFALL3D_WITH_GDAL)

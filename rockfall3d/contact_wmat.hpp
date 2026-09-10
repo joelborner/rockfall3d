@@ -40,3 +40,30 @@ inline void make_Wmat(const Rock& rock,
         WT2.bottomRows<3>().col(static_cast<Eigen::Index>(j)) = C * t2;
     }
 }
+
+// Add the two pure-moment directions required by the five-dimensional
+// Acary-Bourrier contact law. This is intentionally a separate enabled-only
+// pass so ordinary Coulomb simulations retain their original assembly loop.
+inline void make_rolling_Wmat(std::size_t nN,
+    const Mat3& AIK,
+    const Real* dhdx,
+    const Real* dhdy,
+    MatX& WR1,
+    MatX& WR2)
+{
+    WR1.resize(6, nN);
+    WR2.resize(6, nN);
+    WR1.topRows<3>().setZero();
+    WR2.topRows<3>().setZero();
+
+    for (std::size_t j = 0; j < nN; ++j) {
+        const Vec3 n = Vec3{ -dhdx[j], -dhdy[j], Real(1) }.normalized();
+        const Vec3 t1 = Vec3{ Real(1), Real(0), dhdx[j] }.normalized();
+        const Vec3 t2 = n.cross(t1);
+
+        // Generalized angular velocity is body-fixed. A world-frame rolling
+        // moment therefore enters generalized impulse coordinates through AIK^T.
+        WR1.bottomRows<3>().col(static_cast<Eigen::Index>(j)) = AIK.transpose() * t1;
+        WR2.bottomRows<3>().col(static_cast<Eigen::Index>(j)) = AIK.transpose() * t2;
+    }
+}

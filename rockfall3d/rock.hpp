@@ -23,6 +23,7 @@ public:
     std::size_t   nVert() const noexcept { return m_nVert; }
     const MatX& verticesK() const noexcept { return m_KrSP; }
     Real          mass() const noexcept { return m_mass; }
+    Real          equivalentRadius() const noexcept { return m_equivalentRadius; }
     const Mat3& inertiaK() const noexcept { return m_theta; }
     const Mat6& massMatrix() const noexcept { return m_MM; }
     const MatX& skewConcat() const noexcept { return m_KrSP_t; }
@@ -37,6 +38,7 @@ private:
     std::size_t m_nVert{};
     Real        m_density{};
     Real        m_mass{};
+    Real        m_equivalentRadius{};    // radius of a sphere with the same volume
     Mat3        m_theta{};            // inertia tensor in body frame K
     Mat6        m_MM{};               // block-diagonal generalized mass matrix
 

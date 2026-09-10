@@ -5,7 +5,9 @@
 #include "contact_wmat.hpp"
 #include "jor_solver.hpp"
 #include "rotational_integrator.hpp"
+#include "rolling_friction.hpp"
 #include "sor_solver.hpp"
+#include "terrain_interactions.hpp"
 
 #include <optional>
 
@@ -91,6 +93,7 @@ class TimeStepper
 {
 public:
     RotationalIntegratorSettings integrator;
+    TerrainInteractionSettings terrainInteractions;
 
     // Contact solver variant and shared scalar iteration parameters.
     ContactSolverType solverType = ContactSolverType::JorProx;
@@ -102,31 +105,27 @@ public:
     std::uint32_t maxiter = 10000;
 
     // Run and keep all dumped states in memory.
-    TimeStepperResult run(Real mu,
-        const Terrain& dem,
+    TimeStepperResult run(const Terrain& dem,
         const Rock& rock,
         Real dt,
         const TimeStepperStopCriteria& stop = {}) const;
 
     // Run and keep all dumped states in memory, caller provides reusable scratch storage.
-    TimeStepperResult run(Real mu,
-        const Terrain& dem,
+    TimeStepperResult run(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TimeStepperWorkspace& workspace,
         const TimeStepperStopCriteria& stop = {}) const;
 
     // Run and stream accepted states directly to a recorder.
-    TimeStepperRunSummary runRecorded(Real mu,
-        const Terrain& dem,
+    TimeStepperRunSummary runRecorded(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TrajectoryRecorder& recorder,
         const TimeStepperStopCriteria& stop = {}) const;
 
     // Recorder-based run with caller-owned scratch storage.
-    TimeStepperRunSummary runRecorded(Real mu,
-        const Terrain& dem,
+    TimeStepperRunSummary runRecorded(const Terrain& dem,
         const Rock& rock,
         Real dt,
         TimeStepperWorkspace& workspace,

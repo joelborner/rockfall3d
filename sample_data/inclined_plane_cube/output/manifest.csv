@@ -1,0 +1,2 @@
+run_index,rock_index,rock_path,start_index,start_x,start_y,start_z,orientation_index,case_name,status,stop_criterion,output_format,trajectory_file,byte_offset,sim_seconds,trajectory_samples
+1,1,"sample_data\inclined_plane_cube\cube.pts",1,2.6e+06,1.2e+06,36.0697,1,"cube_r001_s0001_o0001",COMPLETED,"max_time","binary","trajectories_001.rfbin",168,0.0084098,2001

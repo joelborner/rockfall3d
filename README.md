@@ -15,7 +15,7 @@ joel.borner@slf.ch
 
 - DEM-based terrain interaction with bilinear interpolation
 - rigid-body dynamics with quaternion orientation
-- nonsmooth dynamics with hard contact laws and Coulomb friction. Moreau timestepping scheme and JOR/SOR-prox contact solve for terrain interaction
+- nonsmooth dynamics with hard contact laws, Coulomb friction, and optional per-contact rolling resistance. Moreau timestepping scheme and JOR/SOR-prox contact solve for terrain interaction
 - roughness model based on Perlin noise
 - deterministic random orientation and roughness, reproducible with seeds
 - shared-memory, thread-based parallel execution
@@ -124,7 +124,8 @@ where `dz` is optional:
 
 ## XML Configuration Reference
 
-The parser expects self-closing tags.
+The parser expects self-closing tags, except that `<terrain>` may be a block
+when terrain interactions are configured.
 
 Required tags:
 
@@ -152,6 +153,50 @@ Required attributes:
 |---|---|
 | `dem` | Path to the DEM raster (`.tif`, `.tiff`, or `.asc`) |
 
+Without additional interaction laws, the existing self-closing form remains valid:
+
+```xml
+<terrain dem="data/dem_2m.tif"/>
+```
+
+Terrain interaction laws are optional self-closing tags inside a terrain block:
+
+```xml
+<terrain dem="data/dem_2m.tif">
+  <interaction type="coulomb_friction" mu="0.5"/>
+  <interaction type="rolling_friction" mu_r="0.05"/>
+</terrain>
+```
+
+Currently supported interaction types:
+
+| Type | Attributes | Meaning |
+|---|---|---|
+| `coulomb_friction` | `mu` | Constant non-negative Coulomb friction coefficient |
+| `coulomb_friction` | `mumin`, `mumax`, `kappa`, `beta` | Slippage-dependent Coulomb friction according to Leine et al. (2014) |
+| `rolling_friction` | `mu_r` | Non-negative dimensionless terrain coefficient |
+
+Exactly one Coulomb parameterization is allowed. For slippage-dependent friction,
+`mumax` must be at least `mumin`, `kappa` has units `m^-1`, and `beta` has units
+`s^-1`. The coefficient is
+
+```text
+mu(s) = mumin + (mumax - mumin) * (2/pi) * atan(kappa * s).
+```
+
+The per-trajectory state `s` is the accumulated center-of-mass travel distance
+during active terrain contact. A contact is active when its solved normal impulse
+is positive. Outside active contact, `s` decays exponentially according to
+`ds/dt = -beta*s`, so `mu` approaches `mumin` continuously. Coulomb and rolling
+friction can be enabled together as independent parts of the same contact law.
+
+The rolling law is the five-dimensional, per-contact formulation of Acary and
+Bourrier (2021). As in PlatRock, the solver converts the terrain coefficient to
+the dimensional rolling-resistance length `mu_r * equivalent rock radius`, which
+bounds the rolling moment impulse. Omitting the interaction, or setting `mu_r="0"`,
+selects the original Coulomb-only solver path. The value must be calibrated for
+the terrain; `0.05` is illustrative, not a universal default.
+
 ### `<rocks/>`
 
 Required attributes:
@@ -176,7 +221,6 @@ Required attributes:
 
 | Attribute | Meaning |
 |---|---|
-| `mu` | Coulomb friction coefficient |
 | `dt` | Time step |
 | `output_dir` | Output directory |
 
@@ -191,6 +235,9 @@ Optional attributes:
 | `random_seed` | random device | Fallback seed for both orientation and roughness if dedicated seeds are omitted |
 | `orientation_seed` | `random_seed` if provided, otherwise random device | Seed for random orientations |
 | `roughness_seed` | `random_seed` if provided, otherwise random device | Seed for roughness realization |
+
+For backward compatibility, constant friction may instead be supplied as `mu`
+on `<simulation/>` when no `coulomb_friction` terrain interaction is present.
 
 Notes:
 
@@ -363,7 +410,11 @@ Notes:
 ```xml
 <rockfall3d/>
 
-<terrain dem="data/dem_2m.tif"/>
+<terrain dem="data/dem_2m.tif">
+  <interaction type="coulomb_friction"
+               mumin="0.2" mumax="1.3" kappa="0.7" beta="20"/>
+  <interaction type="rolling_friction" mu_r="0.05"/>
+</terrain>
 
 <rocks
     list="data/rocks.txt"
@@ -373,7 +424,6 @@ Notes:
 <starts list="data/start_points.txt"/>
 
 <simulation
-    mu="0.5"
     dt="0.002"
     dump_step="0.02"
     en="0.0"

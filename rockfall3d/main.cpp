@@ -398,6 +398,7 @@ TimeStepper make_time_stepper(const BatchSimulationConfig& cfg)
 {
     TimeStepper step;
     step.integrator = cfg.integrator;
+    step.terrainInteractions = cfg.terrainInteractions;
     step.solverType = cfg.solver.type;
     step.alpha = cfg.solver.alpha;
     step.atol = cfg.solver.atol;
@@ -614,7 +615,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         CompositeTrajectoryRecorder recorder(*trajectoryRecorder, *rasterRecorder);
                         recorder.beginTrajectory(meta, runRock, initialStep);
                         recordedSummary = step.runRecorded(
-                            cfg.mu,
                             dem,
                             runRock,
                             cfg.dt,
@@ -625,7 +625,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                     else {
                         trajectoryRecorder->beginTrajectory(meta, runRock, initialStep);
                         recordedSummary = step.runRecorded(
-                            cfg.mu,
                             dem,
                             runRock,
                             cfg.dt,
@@ -654,7 +653,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                         });
 
                     recordedSummary = step.runRecorded(
-                        cfg.mu,
                         dem,
                         runRock,
                         cfg.dt,
@@ -668,7 +666,6 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
                 }
                 else if (cfg.depositionPointOutput.has_value()) {
                     recordedSummary = step.runRecorded(
-                        cfg.mu,
                         dem,
                         runRock,
                         cfg.dt,

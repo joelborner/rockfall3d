@@ -14,10 +14,9 @@ namespace {
 // 3. solve contact impulses with the configured prox solver if needed
 // 4. advance to the end state
 // 5. accept, record, and continue with the next fixed step
-template <typename RotationalIntegrator>
+template <bool RollingEnabled, bool SlippageDependent, typename RotationalIntegrator>
 TimeStepperRunSummary run_core(const TimeStepper& stepper,
     const RotationalIntegrator& integrator,
-    Real mu,
     const Terrain& dem,
     const Rock& rock,
     Real dt,
@@ -75,9 +74,22 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
 
     Vec6 uA = rock.u0();
     Eigen::Matrix<Real, 7, 1> qA = rock.q0();
+    TerrainInteractionState interactionState;
+
+    const CoulombFrictionSettings& friction =
+        stepper.terrainInteractions.coulombFriction;
+    const Real constantMu = friction.mu;
 
     ArrX PN = ArrX::Zero(static_cast<Eigen::Index>(rock.nVert()));
     MatX PT = MatX::Zero(static_cast<Eigen::Index>(rock.nVert()), 2);
+    Real muR = Real(0);
+    MatX PR;
+    if constexpr (RollingEnabled) {
+        muR = stepper.terrainInteractions.rollingFrictionCoefficient
+            * rock.equivalentRadius();
+        PR = MatX::Zero(static_cast<Eigen::Index>(rock.nVert()), 2);
+        workspace.solver.ensureRollingCapacity(rock.nVert());
+    }
 
     const Mat3 inertiaInv = rock.inertiaK().inverse();
 
@@ -117,7 +129,13 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             break;
         }
 
+        Real mu = constantMu;
+        if constexpr (SlippageDependent) {
+            mu = friction.coefficient(interactionState.slippage);
+        }
+
         Vec6 uE;
+        bool hasActiveTerrainContact = false;
         if (query.contactCount > 0)
         {
             // Build normal / tangential contact operators for the active
@@ -132,27 +150,40 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
                 workspace.solver.WT1,
                 workspace.solver.WT2);
 
+            if constexpr (RollingEnabled) {
+                make_rolling_Wmat(query.contactCount,
+                    AIK,
+                    workspace.terrain.dhdx.data(),
+                    workspace.terrain.dhdy.data(),
+                    workspace.solver.WR1,
+                    workspace.solver.WR2);
+            }
+
             const Eigen::Index nC = static_cast<Eigen::Index>(query.contactCount);
             for (Eigen::Index j = 0; j < nC; ++j) {
                 const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
                 workspace.solver.PNsub(j) = PN(v);
                 workspace.solver.PTsub(j, 0) = PT(v, 0);
                 workspace.solver.PTsub(j, 1) = PT(v, 1);
+                if constexpr (RollingEnabled) {
+                    workspace.solver.PRsub(j, 0) = PR(v, 0);
+                    workspace.solver.PRsub(j, 1) = PR(v, 1);
+                }
             }
 
             bool converged = false;
             if (stepper.solverType == ContactSolverType::SorProx) {
-                const SorProjectResult solve = sor_project(workspace.solver, query.contactCount,
+                const auto solve = sor_project<RollingEnabled>(workspace.solver, query.contactCount,
                     freeStep.mobility, freeStep.velocity, uA,
-                    mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
+                    mu, muR, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
             }
             else {
-                const JorProjectResult solve = jor_project(workspace.solver, query.contactCount,
+                const auto solve = jor_project<RollingEnabled>(workspace.solver, query.contactCount,
                     freeStep.mobility, freeStep.velocity, uA,
-                    mu, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
+                    mu, muR, stepper.alpha, stepper.epsilonN, stepper.epsilonT,
                     stepper.atol, stepper.rtol, stepper.maxiter);
                 converged = solve.converged;
                 uE = solve.velocity;
@@ -166,14 +197,28 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
             for (Eigen::Index j = 0; j < nC; ++j) {
                 const Eigen::Index v = static_cast<Eigen::Index>(workspace.terrain.contactIdx(j));
                 PN(v) = workspace.solver.PNsub(j);
+                hasActiveTerrainContact = hasActiveTerrainContact
+                    || workspace.solver.PNsub(j) > Real(0);
                 PT(v, 0) = workspace.solver.PTsub(j, 0);
                 PT(v, 1) = workspace.solver.PTsub(j, 1);
+                if constexpr (RollingEnabled) {
+                    PR(v, 0) = workspace.solver.PRsub(j, 0);
+                    PR(v, 1) = workspace.solver.PRsub(j, 1);
+                }
             }
         }
         else {
             uE = freeStep.velocity;
             PN.setZero();
             PT.setZero();
+            if constexpr (RollingEnabled) PR.setZero();
+        }
+
+        if constexpr (SlippageDependent) {
+            // The old RAMMS implementation evaluates the midpoint COM speed
+            // from bsm.p = bs.p, which is the accepted start velocity here.
+            update_slippage_state(interactionState, friction,
+                hasActiveTerrainContact, uA.head<3>().norm(), stepDt);
         }
 
         Eigen::Matrix<Real, 7, 1> qE = integrator.finishConfiguration(
@@ -226,8 +271,8 @@ TimeStepperRunSummary run_core(const TimeStepper& stepper,
     return summary;
 }
 
-TimeStepperRunSummary run_dispatched(const TimeStepper& stepper,
-    Real mu,
+template <bool RollingEnabled, bool SlippageDependent>
+TimeStepperRunSummary run_integrator_dispatched(const TimeStepper& stepper,
     const Terrain& dem,
     const Rock& rock,
     Real dt,
@@ -238,16 +283,17 @@ TimeStepperRunSummary run_dispatched(const TimeStepper& stepper,
 {
     switch (stepper.integrator.type) {
     case RotationalIntegratorType::Schweizer:
-        return run_core(stepper, SchweizerIntegrator{}, mu, dem, rock, dt,
+        return run_core<RollingEnabled, SlippageDependent>(
+            stepper, SchweizerIntegrator{}, dem, rock, dt,
             workspace, stop, result, recorder);
     case RotationalIntegratorType::Capobianco:
-        return run_core(stepper,
+        return run_core<RollingEnabled, SlippageDependent>(stepper,
             CapobiancoIntegrator{
                 stepper.integrator.atol,
                 stepper.integrator.rtol,
                 stepper.integrator.maxiter
             },
-            mu, dem, rock, dt, workspace, stop, result, recorder);
+            dem, rock, dt, workspace, stop, result, recorder);
     }
 
     TimeStepperRunSummary summary;
@@ -255,44 +301,72 @@ TimeStepperRunSummary run_dispatched(const TimeStepper& stepper,
     return summary;
 }
 
+TimeStepperRunSummary run_dispatched(const TimeStepper& stepper,
+    const Terrain& dem,
+    const Rock& rock,
+    Real dt,
+    TimeStepperWorkspace& workspace,
+    const TimeStepperStopCriteria& stop,
+    TimeStepperResult* result,
+    TrajectoryRecorder* recorder)
+{
+    const bool rolling = stepper.terrainInteractions.rollingFrictionEnabled();
+    const bool slippage =
+        stepper.terrainInteractions.coulombFriction.slippageDependent();
+    if (rolling) {
+        if (slippage) {
+            return run_integrator_dispatched<true, true>(stepper, dem, rock, dt,
+                workspace, stop, result, recorder);
+        }
+        return run_integrator_dispatched<true, false>(stepper, dem, rock, dt,
+            workspace, stop, result, recorder);
+    }
+    if (slippage) {
+        return run_integrator_dispatched<false, true>(stepper, dem, rock, dt,
+            workspace, stop, result, recorder);
+    }
+    return run_integrator_dispatched<false, false>(stepper, dem, rock, dt,
+        workspace, stop, result, recorder);
+}
+
 } // namespace
 
 TimeStepperResult
-TimeStepper::run(Real mu, const Terrain& dem,
+TimeStepper::run(const Terrain& dem,
     const Rock& rock, Real dt,
     const TimeStepperStopCriteria& stop) const
 {
     TimeStepperWorkspace workspace;
-    return run(mu, dem, rock, dt, workspace, stop);
+    return run(dem, rock, dt, workspace, stop);
 }
 
 TimeStepperResult
-TimeStepper::run(Real mu, const Terrain& dem,
+TimeStepper::run(const Terrain& dem,
     const Rock& rock, Real dt,
     TimeStepperWorkspace& workspace,
     const TimeStepperStopCriteria& stop) const
 {
     TimeStepperResult result;
-    run_dispatched(*this, mu, dem, rock, dt, workspace, stop, &result, nullptr);
+    run_dispatched(*this, dem, rock, dt, workspace, stop, &result, nullptr);
     return result;
 }
 
 TimeStepperRunSummary
-TimeStepper::runRecorded(Real mu, const Terrain& dem,
+TimeStepper::runRecorded(const Terrain& dem,
     const Rock& rock, Real dt,
     TrajectoryRecorder& recorder,
     const TimeStepperStopCriteria& stop) const
 {
     TimeStepperWorkspace workspace;
-    return runRecorded(mu, dem, rock, dt, workspace, recorder, stop);
+    return runRecorded(dem, rock, dt, workspace, recorder, stop);
 }
 
 TimeStepperRunSummary
-TimeStepper::runRecorded(Real mu, const Terrain& dem,
+TimeStepper::runRecorded(const Terrain& dem,
     const Rock& rock, Real dt,
     TimeStepperWorkspace& workspace,
     TrajectoryRecorder& recorder,
     const TimeStepperStopCriteria& stop) const
 {
-    return run_dispatched(*this, mu, dem, rock, dt, workspace, stop, nullptr, &recorder);
+    return run_dispatched(*this, dem, rock, dt, workspace, stop, nullptr, &recorder);
 }

@@ -1,6 +1,7 @@
 #include "rock.hpp"
 #include "quickhull.hpp"
 #include <Eigen/Geometry>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 
@@ -162,6 +163,8 @@ void Rock::compute_mass_inertia_volume()
     // 5.  Shift inertia from the origin to the center of mass
     const Vec3 COM = S1 / V;       // vector from origin to COM
     m_mass = V * m_density;
+    constexpr Real pi = Real(3.141592653589793238462643383279502884L);
+    m_equivalentRadius = std::cbrt(Real(3) * V / (Real(4) * pi));
 
     const Real cx = COM.x(), cy = COM.y(), cz = COM.z();
 
