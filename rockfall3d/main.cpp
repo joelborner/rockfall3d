@@ -1,6 +1,7 @@
 #include "config_io.hpp"
 #include "deposition_output.hpp"
 #include "fast_io.hpp"
+#include "interface_description.hpp"
 #include "raster_output.hpp"
 #include "rock.hpp"
 #include "terrain.hpp"
@@ -949,11 +950,16 @@ int run_batch_threaded(const BatchSimulationConfig& cfg,
 int main(int argc, char** argv)
 {
     if (argc != 2) {
-        std::cerr << "usage: rockfall3d config.xml\n";
+        std::cerr << "usage: rockfall3d config.xml | --describe-interface\n";
         return 1;
     }
 
     try {
+        if (std::string_view(argv[1]) == "--describe-interface") {
+            std::cout << rockfall3d::interface_description_json;
+            return std::cout ? 0 : 1;
+        }
+
         const BatchSimulationConfig cfg = load_batch_simulation_config(argv[1]);
         const std::uint64_t orientationSeed = cfg.orientationSeed.value_or(
             splitmix64(static_cast<std::uint64_t>(std::random_device{}())));

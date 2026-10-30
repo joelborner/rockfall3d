@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace rockfall3d {
+
+/// Embedded executable capabilities; no scenario or filesystem access is needed.
+inline constexpr std::string_view interface_description_json = R"rf3d_json(@INTERFACE_JSON@)rf3d_json";
+
+} // namespace rockfall3d
