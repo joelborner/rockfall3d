@@ -9,5 +9,78 @@
     "description_id": "sha256:@ENGINE_DESCRIPTION_HASH@"
   },
   "managed_domains": ["rock.models"],
-  "sections": []
+  "sections": [
+    {
+      "id": "fragmentation",
+      "domain": "rock.models",
+      "target": "rock",
+      "title": "Fragmentation",
+      "description": "Experimental removal of material following energetic contacts.",
+      "order": 100,
+      "optional": true,
+      "enabled_by_default": false,
+      "parameters": [
+        {
+          "id": "threshold_specific_energy",
+          "label": "Threshold specific energy",
+          "description": "Specific impact severity below which no material is removed.",
+          "type": "number",
+          "unit": "J/kg",
+          "initial_value": 0.2,
+          "required": true,
+          "minimum": 0,
+          "xml": {"attribute": "threshold_specific_energy"}
+        },
+        {
+          "id": "saturation_specific_energy",
+          "label": "Saturation specific energy",
+          "description": "Specific impact severity at which the maximum removed fraction is reached.",
+          "type": "number",
+          "unit": "J/kg",
+          "initial_value": 100,
+          "required": true,
+          "xml": {"attribute": "half_specific_energy"}
+        },
+        {
+          "id": "exponent",
+          "label": "Growth exponent",
+          "description": "Exponent of the normalized impact-severity growth curve.",
+          "type": "number",
+          "unit": "1",
+          "initial_value": 2,
+          "parser_default": 2,
+          "required": false,
+          "exclusiveMinimum": 0,
+          "xml": {"attribute": "exponent"}
+        },
+        {
+          "id": "max_removed_fraction",
+          "label": "Maximum removed mass fraction per event",
+          "description": "Upper bound on the target removed fraction of the current rock mass.",
+          "type": "number",
+          "unit": "1",
+          "initial_value": 0.5,
+          "parser_default": 0.5,
+          "required": false,
+          "exclusiveMinimum": 0,
+          "maximum": 0.5,
+          "xml": {"attribute": "max_removed_fraction"}
+        }
+      ],
+      "rules": [
+        {
+          "operator": "greater_than",
+          "left": {"parameter": "saturation_specific_energy"},
+          "right": {"parameter": "threshold_specific_energy"},
+          "message": "Saturation specific energy must exceed threshold specific energy."
+        }
+      ],
+      "xml": {
+        "parent_path": [],
+        "element": "fragmentation",
+        "emit_when": "enabled",
+        "cardinality": "zero_or_one"
+      }
+    }
+  ]
 }

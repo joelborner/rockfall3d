@@ -13,7 +13,7 @@
 struct FragmentationConfig
 {
 	Real thresholdSpecificEnergy{ Real(0) }; // minimum specific energy required to trigger fragmentation [J/kg]
-	Real halfSpecificEnergy{ Real(0) };      // specific energy at which half of the maximum mass fraction is removed [J/kg]
+	Real halfSpecificEnergy{ Real(0) };      // saturation specific energy; legacy XML name retained [J/kg]
     Real exponent{ Real(2) };                // exponent for the fragmentation mass fraction curve
     Real maxRemovedFraction{ Real(0.5) };   // maximum fraction of mass that can be removed
     std::filesystem::path shapeOutputDirectory{ "fragment_shapes" }; // directory to save fragment shapes

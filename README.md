@@ -111,8 +111,8 @@ GUI integrations can query the selected executable's supported parameter section
 ```
 
 This prints an embedded JSON description without running a simulation or creating
-files. The initial catalogue covers optional rock models only; this branch does
-not support fragmentation. See the [interface contract](docs/interface-description.md)
+files. The initial catalogue covers optional rock models only; this experimental
+branch advertises Fragmentation, disabled by default. See the [interface contract](docs/interface-description.md)
 for partial coverage and compatibility behaviour. Interface-command tests run
 through CTest using CMake; the plugin project owns form and XML-mapping tests.
 

@@ -147,18 +147,35 @@ if(BUILD_TESTING)
     )
     target_link_libraries(fragmentation_tests PRIVATE Eigen3::Eigen)
     add_test(NAME fragmentation_tests COMMAND fragmentation_tests)
+
+    add_executable(fragmentation_config_tests tests/fragmentation_config_tests.cpp)
+    target_include_directories(fragmentation_config_tests
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
+    )
+    target_link_libraries(fragmentation_config_tests PRIVATE Eigen3::Eigen)
+    add_dependencies(fragmentation_config_tests rockfall3d_interface_metadata)
+    add_test(NAME fragmentation_interface_tests
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPARSER_TEST=$<TARGET_FILE:fragmentation_config_tests>"
+            "-DDESCRIPTION=${interface_generated_dir}/interface-description.json"
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/fragmentation interface test/$<CONFIG>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fragmentation_interface_test.cmake"
+    )
 endif()
 
 if(ROCKFALL3D_WITH_GDAL)
     find_package(GDAL REQUIRED)
-    target_compile_definitions(rockfall3d PRIVATE WITH_GDAL)
-
-    if(TARGET GDAL::GDAL)
-        target_link_libraries(rockfall3d PRIVATE GDAL::GDAL)
-    else()
-        target_include_directories(rockfall3d PRIVATE ${GDAL_INCLUDE_DIRS})
-        target_link_libraries(rockfall3d PRIVATE ${GDAL_LIBRARIES})
-    endif()
+    foreach(target IN ITEMS rockfall3d fragmentation_config_tests)
+        if(TARGET ${target})
+            target_compile_definitions(${target} PRIVATE WITH_GDAL)
+            if(TARGET GDAL::GDAL)
+                target_link_libraries(${target} PRIVATE GDAL::GDAL)
+            else()
+                target_include_directories(${target} PRIVATE ${GDAL_INCLUDE_DIRS})
+                target_link_libraries(${target} PRIVATE ${GDAL_LIBRARIES})
+            endif()
+        endif()
+    endforeach()
 endif()
 
 if(MSVC)

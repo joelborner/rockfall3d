@@ -17,8 +17,8 @@ for inspection only. Capability selection must describe actual compiled support,
 never infer it from branch names or filenames of selected executables.
 
 This pilot manages only **optional rock models**, domain `rock.models`. The
-current branch does not implement fragmentation and therefore returns an empty
-`sections` list. This does not disable existing density, scaling, release,
+current experimental branch advertises one Fragmentation section, disabled by
+default. Builds without fragmentation return an empty `sections` list. This does not disable existing density, scaling, release,
 terrain, numerical or output controls: those are outside the managed domain.
 
 ## Document
@@ -162,8 +162,8 @@ controls the selected executable provides.
 
 Complete fixtures live only in the companion `rockfall3d-qgis` repository:
 
-- `tests/fixtures/interface/without-fragmentation.json`: current capabilities.
-- `tests/fixtures/interface/with-fragmentation.json`: prospective supported section.
+- `tests/fixtures/interface/without-fragmentation.json`: a build without optional rock models.
+- `tests/fixtures/interface/with-fragmentation.json`: the supported experimental section.
 - `tests/fixtures/interface/fragmentation.xml`: corresponding example element.
 
 They test the plugin's actual description validator, generated forms, executable
@@ -185,18 +185,17 @@ the engine default. On import, preserve any explicitly supplied hidden directory
 attribute when saving an otherwise unchanged scenario. Preserve the engine's
 automatic mass/shape-index output behaviour.
 
-The supported fixture is **not a capability switch** and does not add the
-fragmentation physics to this branch. To connect the experimental build, merge
-the common command/contract there and register the section in its actual
-`interface/description.json.in`, preserving the provenance placeholders. Then
-add parser-consistency tests against its real `FragmentationConfig` defaults,
-validation and XML parsing. Do not advertise fragmentation in this build or
-infer it merely from a branch name or the presence of a header.
+The fixture is **not a capability switch**. This branch registers the section in
+its actual `interface/description.json.in` and compiles the fragmentation model.
+The built executable therefore supplies the section directly; no plugin override
+or external JSON file is needed.
 
-The supported case has so far been fixture-tested in the plugin. No
-fragmentation-enabled executable is produced here. Metadata and parser definitions remain
-separate until that integration. Extract shared numeric defaults and validation
-helpers there when practical; do not rewrite the full parser for this pilot.
+Metadata and parser definitions remain separate. `fragmentation_interface_tests`
+feeds the advertised XML names, initial values and defaults into tests of the real
+parser. It also checks required attributes, numeric limits, omission, the default
+shape directory and automatic mass/shape-index outputs. These are engine tests,
+not hypothetical plugin fixtures. A future refactor can share definitions more
+directly without rewriting the full parser for this pilot.
 
 ## Verification
 
@@ -218,6 +217,6 @@ omission, generated forms, executable switching and XML round trips. These tests
 exercise production plugin code rather than a separate reference implementation.
 
 The end-to-end plugin acceptance check is: switch builds, show/hide generated
-fragmentation, retain stored values, save/reopen XML, and run accepted input.
-It requires the later real fragmentation build. Existing simulation invocation,
+fragmentation, retain stored values, save/reopen XML, and run accepted input with
+this branch's executable. Existing simulation invocation,
 numerical integration, solvers and output formats are unchanged by this command.
