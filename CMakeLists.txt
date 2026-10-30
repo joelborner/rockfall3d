@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(rockfall3d LANGUAGES CXX)
+project(rockfall3d VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -9,6 +9,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ROCKFALL3D_WITH_GDAL "Build with GDAL-based raster and shapefile support" ON)
+
+find_package(Git QUIET)
+set(interface_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# Refresh provenance on every build; configure_file only rewrites changed output.
+add_custom_target(rockfall3d_interface_metadata
+    COMMAND "${CMAKE_COMMAND}"
+        "-DROCKFALL3D_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DROCKFALL3D_GENERATED_DIR=${interface_generated_dir}"
+        "-DROCKFALL3D_VERSION=${PROJECT_VERSION}"
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateInterface.cmake"
+    BYPRODUCTS "${interface_generated_dir}/interface_description.hpp"
+    VERBATIM
+)
 
 add_executable(rockfall3d
     rockfall3d/main.cpp
@@ -37,11 +51,13 @@ add_executable(rockfall3d
     rockfall3d/trajectory_format.hpp
     rockfall3d/trajectory_recorder.hpp
 )
+add_dependencies(rockfall3d rockfall3d_interface_metadata)
 
 target_include_directories(rockfall3d
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d
         ${CMAKE_CURRENT_SOURCE_DIR}/rockfall3d/external/quickhull/include
+        ${interface_generated_dir}
 )
 
 find_package(Eigen3 3.4 QUIET NO_MODULE)
@@ -64,6 +80,14 @@ else()
 endif()
 
 if(BUILD_TESTING)
+    add_test(NAME interface_description_tests
+        COMMAND "${CMAKE_COMMAND}"
+            "-DEXECUTABLE=$<TARGET_FILE:rockfall3d>"
+            "-DEXPECTED_DESCRIPTION=${interface_generated_dir}/interface-description.json"
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/interface command test/$<CONFIG>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/interface_description_test.cmake"
+    )
+
     add_executable(rotational_integrator_tests
         tests/rotational_integrator_tests.cpp
         rockfall3d/math_alias.hpp

@@ -28,6 +28,9 @@ joel.borner@slf.ch
 - [`sample_data/`](sample_data): example XML files and sample inputs
 - [`CMakeLists.txt`](CMakeLists.txt): CMake build configuration
 - [`CMakePresets.json`](CMakePresets.json): CMake presets for the tested Windows build
+- [`interface/`](interface): executable-provided parameter catalogue embedded during the build
+- [`docs/interface-description.md`](docs/interface-description.md): versioned interface contract for GUI integrations
+- [`tests/`](tests): numerical tests and executable interface-command checks
 - [`vcpkg.json`](vcpkg.json): vcpkg dependency manifest used by local builds and CI
 - [`.github/workflows/`](.github/workflows): GitHub Actions workflows for automated build and test runs
 - [`vcpkg-triplets/`](vcpkg-triplets): custom vcpkg triplets used for optimized CI/release builds
@@ -95,11 +98,23 @@ build\windows-release\Release\rockfall3d.exe
 
 ## Running
 
-The executable expects exactly one argument: the XML config file.
+To run a simulation, pass the XML config file:
 
 ```powershell
 .\build\windows-release\Release\rockfall3d.exe path\to\config.xml
 ```
+
+GUI integrations can query the selected executable's supported parameter sections:
+
+```powershell
+.\build\windows-release\Release\rockfall3d.exe --describe-interface
+```
+
+This prints an embedded JSON description without running a simulation or creating
+files. The initial catalogue covers optional rock models only; this branch does
+not support fragmentation. See the [interface contract](docs/interface-description.md)
+for partial coverage and compatibility behaviour. Interface-command tests run
+through CTest using CMake; the plugin project owns form and XML-mapping tests.
 
 ## Input Files Referenced by XML
 

@@ -1,0 +1,13 @@
+{
+  "interface_schema_version": 1,
+  "engine": {
+    "id": "rockfall3d",
+    "version": "@ROCKFALL3D_VERSION@",
+    "build_id": "@ENGINE_BUILD_ID@",
+    "source_revision": @ENGINE_SOURCE_REVISION@,
+    "source_dirty": @ENGINE_SOURCE_DIRTY@,
+    "description_id": "sha256:@ENGINE_DESCRIPTION_HASH@"
+  },
+  "managed_domains": ["rock.models"],
+  "sections": []
+}
